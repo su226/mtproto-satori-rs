@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Deserializer, Serialize, ser::SerializeStruct};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
@@ -28,6 +30,18 @@ pub struct Login {
     pub status: LoginStatus,
     pub adapter: String,
     pub features: Option<Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Argv {
+    pub name: String,
+    pub arguments: Vec<String>,
+    pub options: HashMap<String, String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Button {
+    pub id: String,
 }
 
 #[derive(Serialize_repr, Deserialize_repr, Debug, Clone)]
@@ -66,8 +80,8 @@ pub struct Member {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Role {
-    id: String,
-    name: Option<String>,
+    pub id: String,
+    pub name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -89,8 +103,8 @@ pub struct Event {
     pub event_type: String,
     pub timestamp: f64,
     pub login: Login,
-    // TODO argv
-    // TODO button
+    pub argv: Option<Argv>,
+    pub button: Option<Button>,
     pub channel: Option<Channel>,
     pub guild: Option<Guild>,
     pub member: Option<Member>,

@@ -81,7 +81,7 @@ Start with `cargo run`.
 - [ ] guild-role-created
 - [ ] guild-role-updated
 - [ ] guild-role-deleted
-- [ ] interaction/button
+- [x] interaction/button
 - [ ] interaction/command
 - [ ] login-added
 - [ ] login-removed

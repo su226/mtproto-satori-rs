@@ -67,9 +67,8 @@ impl EventPublisher {
                 }
             };
             let mut self_info_cache = self.self_info_cache.lock().await;
-            let self_id = self_info_cache.get_id().bot_api_dialog_id();
             let login = match self_info_cache.get().await {
-                Ok(user) => satori_login_from_tg_user(&user),
+                Ok(user) => user,
                 Err(err) => {
                     warn!(
                         "Failed to get login info, event won't be published: {:?}",
@@ -79,7 +78,23 @@ impl EventPublisher {
                 }
             };
             drop(self_info_cache);
-            let mut event = satori_event_from_tg_update(self_id, &update, login);
+            let additional_message = match &update {
+                Update::CallbackQuery(callback) => {
+                    if let Err(err) = callback.answer().send().await {
+                        warn!("Failed to answer callback query: {:?}", err);
+                    }
+                    match callback.load_message().await {
+                        Ok(message) => Some(message),
+                        Err(err) => {
+                            warn!("Failed to get callback query message: {:?}", err);
+                            None
+                        }
+                    }
+                }
+                _ => None,
+            };
+            let mut event =
+                satori_event_from_tg_update(&login, &update, additional_message.as_ref());
             match event {
                 Some(ref mut event) => {
                     event.sn = sn;
