@@ -15,7 +15,7 @@ use grammers_client::{
     Client, SenderPool, SignInError, sender::ConnectionParams, session::storages::SqliteSession,
 };
 use log::debug;
-use ntex::web;
+use ntex::web::{self, types::JsonConfig};
 use tokio::sync::Mutex;
 
 use crate::{
@@ -130,6 +130,7 @@ async fn main() -> io::Result<()> {
             .state(self_info_cache.clone())
             .state(event_publisher.clone())
             .state(session_name.clone())
+            .state(JsonConfig::default().limit(settings.json_limit))
             .service(
                 web::scope(path)
                     .middleware(SatoriAuthorization)

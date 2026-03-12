@@ -10,8 +10,9 @@ Create `config.toml`.
 
 ```toml
 bind = "127.0.0.1:5140" # Optional, defaults to "127.0.0.1:5140"
-path = "/satori" # Optional, defaults to "/"
+path = "/satori" # Optional, defaults to ""
 token = "" # Optional, defaults to ""
+json_limit = 10485760 # Optional, defaults to 10485760. If you can't send image with data URLs, try increase it.
 api_id = 12345 # Required, example value here won't work
 api_hash = "0123456789abcdef0123456789abcdef" # Required, example value here won't work
 phone = "" # Either phone or bot_token is required
