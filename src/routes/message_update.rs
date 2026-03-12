@@ -13,10 +13,11 @@ use serde::Deserialize;
 use crate::{
     convert::{
         channel::tg_peer_id_from_satori_channel_id,
-        message_send::{MessageEncoder, fetch_infos},
+        message_send::{MessageEncoder, fetch_infos, to_reply_markup},
     },
     error::MyError,
     satori::element::parse,
+    telegram::add_reply_markup,
 };
 
 #[derive(Deserialize)]
@@ -54,11 +55,17 @@ async fn message_update(
     encoder.flush();
     let content = encoder
         .packs
-        .into_iter()
-        .map(|x| x.content)
+        .iter()
+        .map(|x| x.content.as_str())
         .collect::<String>();
-    client
-        .edit_message(peer, message_id, InputMessage::new().html(content))
-        .await?;
+    let buttons = encoder
+        .packs
+        .into_iter()
+        .map(|x| x.rows)
+        .flatten()
+        .collect::<Vec<_>>();
+    let message = InputMessage::new().html(content);
+    let message = add_reply_markup(message, to_reply_markup(&buttons));
+    client.edit_message(peer, message_id, message).await?;
     Ok(Response::Ok().finish())
 }

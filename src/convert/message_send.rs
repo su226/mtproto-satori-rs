@@ -47,7 +47,7 @@ pub struct MessagePack {
     pub content: String,
     pub asset: Vec<Element>,
     pub reply: Option<String>,
-    rows: Vec<Vec<Button>>,
+    pub rows: Vec<Vec<Button>>,
 }
 
 impl MessagePack {
@@ -66,6 +66,14 @@ impl MessagePack {
         } else {
             Some(ReplyMarkup::from_buttons(self.rows.as_slice()))
         }
+    }
+}
+
+pub fn to_reply_markup(rows: &[Vec<Button>]) -> Option<ReplyMarkup> {
+    if rows.is_empty() {
+        None
+    } else {
+        Some(ReplyMarkup::from_buttons(rows))
     }
 }
 
