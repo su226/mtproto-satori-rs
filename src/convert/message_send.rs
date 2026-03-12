@@ -3,7 +3,7 @@ use std::{
     collections::{HashMap, HashSet},
     io::{self, Cursor},
     mem::replace,
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use async_tempfile::TempFile;
@@ -28,10 +28,12 @@ use grammers_client::{
     },
 };
 use grammers_session::types::PeerKind;
+use image::{ImageError, ImageFormat, ImageReader, ImageResult};
 use infer::Infer;
 use lazy_static::lazy_static;
 use log::debug;
-use ntex::http::StatusCode;
+use mime_guess::get_mime_extensions_str;
+use ntex::{http::StatusCode, rt::spawn_blocking};
 use regex::Regex;
 use tokio::{fs, io::AsyncWriteExt};
 use tokio_util::io::StreamReader;
@@ -489,14 +491,13 @@ async fn upload_media(
     client: &Client,
     element: &Element,
     session_name: &str,
-) -> Result<(Uploaded, String), io::Error> {
+) -> Result<Uploaded, io::Error> {
     let url = element
         .get_attr_str("src")
         .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
     let name = element.get_attr_str("name");
     if let Some(header) = BASE64_HEADER_REGEX.captures(url) {
         debug!("Uploading file {}...", header.get_match().as_str());
-        let mime = header.get(1).unwrap().as_str();
         let data = BASE64_STANDARD
             .decode(&url[header.get_match().end()..])
             .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
@@ -505,25 +506,25 @@ async fn upload_media(
         {
             name.to_string()
         } else {
-            let exts = mime_guess::get_mime_extensions_str(mime);
-            format!("file.{}", exts.map(|x| x[0]).unwrap_or("bin"))
+            let ext = Infer::new()
+                .get(&data)
+                .map(|x| x.extension())
+                .unwrap_or_else(|| {
+                    mime_guess::get_mime_extensions_str(header.get(1).unwrap().as_str())
+                        .map(|x| x[0])
+                        .unwrap_or("bin")
+                });
+            format!("file.{}", ext)
         };
         let size = data.len();
         let mut stream = Cursor::new(data);
-        Ok((
-            client.upload_stream(&mut stream, size, name).await?,
-            mime.to_string(),
-        ))
+        client.upload_stream(&mut stream, size, name).await
     } else if url.starts_with("file:") {
         debug!("Uploading file {}", url);
         let path = Url::parse(url)
             .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?
             .to_file_path()
             .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
-        let mime = Infer::new()
-            .get_from_path(&path)?
-            .map(|x| x.mime_type())
-            .unwrap_or("application/octet-stream");
         let name = if let Some(name) = name
             && !name.is_empty()
         {
@@ -531,10 +532,7 @@ async fn upload_media(
         } else {
             None
         };
-        Ok((
-            upload_file_custom_name(client, &path, name).await?,
-            mime.to_string(),
-        ))
+        upload_file_custom_name(client, &path, name).await
     } else {
         debug!("Uploading file {}", url);
         let mut response = reqwest::get(url)
@@ -553,29 +551,214 @@ async fn upload_media(
                 .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?
                 .to_string()
         };
-        let mime = response
+        if let Some(size) = response.content_length() {
+            let stream = &mut StreamReader::new(response.bytes_stream().map_err(io::Error::other));
+            client.upload_stream(stream, size as usize, name).await
+        } else {
+            let mut dir = PathBuf::new();
+            dir.push(format!("files_{}", session_name));
+            fs::create_dir_all(&dir).await?;
+            let mut file = TempFile::new_in(dir)
+                .await
+                .map_err(tempfile_err_to_io_err)?;
+            while let Some(mut item) = response.chunk().await.map_err(io::Error::other)? {
+                file.write_all_buf(item.borrow_mut()).await?;
+            }
+            let path = file.file_path();
+            upload_file_custom_name(client, &path, Some(name)).await
+        }
+    }
+}
+
+fn image_err_to_io_err(err: ImageError) -> io::Error {
+    match err {
+        ImageError::IoError(err) => err,
+        _ => io::Error::other(err),
+    }
+}
+
+fn extension_match(name: &str, ext: &str) -> bool {
+    name.len() > ext.len() + 1
+        && name.as_bytes()[name.len() - ext.len() - 1] == b'.'
+        && &name[name.len() - ext.len()..] == ext
+}
+
+async fn convert_image(path: &Path, out_path: &Path) -> io::Result<()> {
+    let path = path.to_owned();
+    let out_path = out_path.to_owned();
+    match spawn_blocking(move || -> ImageResult<()> {
+        let image = ImageReader::open(path)?.with_guessed_format()?.decode()?;
+        image.save_with_format(out_path, ImageFormat::Png)
+    })
+    .await
+    {
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(err)) => Err(image_err_to_io_err(err)),
+        Err(err) => Err(io::Error::other(err)),
+    }
+}
+
+fn image_mime_valid(mime: &str) -> bool {
+    mime == "image/jpg" || mime == "image/png" || mime == "image/gif"
+}
+
+async fn upload_image(
+    client: &Client,
+    element: &Element,
+    session_name: &str,
+) -> Result<(Uploaded, String), io::Error> {
+    let url = element
+        .get_attr_str("src")
+        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+    let name = element.get_attr_str("name");
+    if let Some(header) = BASE64_HEADER_REGEX.captures(url) {
+        debug!("Uploading image {}...", header.get_match().as_str());
+        let mut data = BASE64_STANDARD
+            .decode(&url[header.get_match().end()..])
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+        let (mut mime, mut ext) = Infer::new()
+            .get(&data)
+            .map(|x| (x.mime_type(), x.extension()))
+            .unwrap_or_else(|| {
+                let mime = header.get(1).unwrap().as_str();
+                let ext = get_mime_extensions_str(mime).map(|x| x[0]).unwrap_or("bin");
+                (mime, ext)
+            });
+        if !image_mime_valid(mime) {
+            let image = ImageReader::new(Cursor::new(data))
+                .decode()
+                .map_err(image_err_to_io_err)?;
+            let mut new_data = Vec::new();
+            image
+                .write_to(Cursor::new(&mut new_data), ImageFormat::Png)
+                .map_err(image_err_to_io_err)?;
+            data = new_data;
+            mime = "image/png";
+            ext = "png";
+        }
+        let name = if let Some(name) = name
+            && !name.is_empty()
+        {
+            if extension_match(name, ext) {
+                name.to_string()
+            } else {
+                format!("{}.{}", name, ext)
+            }
+        } else {
+            format!("file.{}", ext)
+        };
+        let size = data.len();
+        let mut stream = Cursor::new(data);
+        Ok((
+            client.upload_stream(&mut stream, size, name).await?,
+            mime.to_string(),
+        ))
+    } else if url.starts_with("file:") {
+        debug!("Uploading image {}", url);
+        let mut path = &Url::parse(url)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?
+            .to_file_path()
+            .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
+        let (mut mime, mut ext) = Infer::new()
+            .get_from_path(path)?
+            .map(|x| (x.mime_type(), x.extension()))
+            .unwrap_or(("application/octet-stream", "bin"));
+        let mut tempfile = None;
+        if !image_mime_valid(mime) {
+            let mut dir = PathBuf::new();
+            dir.push(format!("files_{}", session_name));
+            fs::create_dir_all(&dir).await?;
+            tempfile = Some(
+                TempFile::new_in(dir)
+                    .await
+                    .map_err(tempfile_err_to_io_err)?,
+            );
+            let new_path = tempfile.as_ref().unwrap().file_path();
+            path = new_path;
+            mime = "image/png";
+            ext = "png";
+        }
+        let name = if let Some(name) = name
+            && !name.is_empty()
+        {
+            name.to_string()
+        } else {
+            path.file_name().unwrap().to_string_lossy().to_string()
+        };
+        let name = if extension_match(&name, ext) {
+            name
+        } else {
+            format!("{}.{}", name, ext)
+        };
+        let result = upload_file_custom_name(client, &path, Some(name)).await?;
+        drop(tempfile);
+        Ok((result, mime.to_string()))
+    } else {
+        debug!("Uploading image {}", url);
+        let mut response = reqwest::get(url)
+            .await
+            .map_err(|err| io::Error::other(err))?;
+        let (mut mime, mut ext) = response
             .headers()
             .get("Content-Type")
             .and_then(|x| x.to_str().ok())
-            .map(|x| MIME_SPLIT_REGEX.splitn(x, 1).next().unwrap())
-            .unwrap_or("application/octet-stream")
-            .to_string();
-        if let Some(size) = response.content_length() {
+            .map(|x| MIME_SPLIT_REGEX.splitn(x, 1).next().unwrap().to_string())
+            .map(|x| {
+                let ext = get_mime_extensions_str(&x)
+                    .map(|x| x[0])
+                    .unwrap_or("bin")
+                    .to_string();
+                (x, ext)
+            })
+            .unwrap_or(("application/octet-stream".to_string(), "bin".to_string()));
+        let name = if let Some(name) = name
+            && !name.is_empty()
+        {
+            name.to_string()
+        } else {
+            Url::parse(url)
+                .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?
+                .path_segments()
+                .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?
+                .last()
+                .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?
+                .to_string()
+        };
+        let mime_valid = image_mime_valid(&mime);
+        if let Some(size) = response.content_length()
+            && mime_valid
+        {
+            let name = if extension_match(&name, &ext) {
+                name
+            } else {
+                format!("{}.{}", name, ext)
+            };
             let stream = &mut StreamReader::new(response.bytes_stream().map_err(io::Error::other));
             Ok((
                 client.upload_stream(stream, size as usize, name).await?,
                 mime,
             ))
         } else {
-            let mut path = PathBuf::new();
-            path.push(format!("files_{}", session_name));
-            fs::create_dir_all(&path).await?;
-            let mut file = TempFile::new_in(path.clone())
+            let mut dir = PathBuf::new();
+            dir.push(format!("files_{}", session_name));
+            fs::create_dir_all(&dir).await?;
+            let mut file = TempFile::new_in(dir.clone())
                 .await
                 .map_err(tempfile_err_to_io_err)?;
             while let Some(mut item) = response.chunk().await.map_err(io::Error::other)? {
                 file.write_all_buf(item.borrow_mut()).await?;
             }
+            let path = file.file_path();
+            if !mime_valid {
+                convert_image(path, path).await?;
+                mime = "image/png".to_string();
+                ext = "png".to_string();
+            }
+            let name = if extension_match(&name, &ext) {
+                name
+            } else {
+                format!("{}.{}", name, ext)
+            };
             Ok((
                 upload_file_custom_name(client, &path, Some(name)).await?,
                 mime,
@@ -591,18 +774,27 @@ pub async fn upload_medias(
 ) -> Result<Vec<InputMedia>, io::Error> {
     let mut medias = Vec::new();
     for element in elements {
-        let (media, mime) = upload_media(client, element, session_name).await?;
         medias.push(match element.tag.as_str() {
             "img" | "image" => {
+                let (media, mime) = upload_image(client, element, session_name).await?;
                 if mime == "image/gif" {
                     InputMedia::new().file(media)
                 } else {
                     InputMedia::new().photo(media)
                 }
             }
-            "audio" => InputMedia::new().document(media),
-            "video" => InputMedia::new().document(media),
-            "file" => InputMedia::new().file(media),
+            "audio" => {
+                let media = upload_media(client, element, session_name).await?;
+                InputMedia::new().document(media)
+            }
+            "video" => {
+                let media = upload_media(client, element, session_name).await?;
+                InputMedia::new().document(media)
+            }
+            "file" => {
+                let media = upload_media(client, element, session_name).await?;
+                InputMedia::new().file(media)
+            }
             _ => unreachable!(),
         });
     }
