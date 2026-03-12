@@ -55,7 +55,11 @@ where
         let self_info_manager = req
             .app_state::<Arc<Mutex<SelfInfoCache>>>()
             .expect("SelfInfoManager is not initalized");
-        let path = req.path();
+        let prefix = settings.path.trim_end_matches("/");
+        let path = match req.path().strip_prefix(prefix) {
+            Some(path) => path,
+            None => return ctx.call(&self.service, req).await,
+        };
         let headers = req.headers();
         let is_events = path == "/v1/events";
         let is_meta = path.starts_with("/v1/meta/");
