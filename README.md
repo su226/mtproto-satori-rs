@@ -40,6 +40,12 @@ bot_token = ""
 proxy = "socks5://127.0.0.1:1234"
 # Optional, only socks5 is supported
 
+recovery_events = 100
+# Optional, defaults to 0.
+# Max capacity of session recovery events buffer.
+# See https://satori.chat/zh-CN/protocol/events.html#session-recovery
+# Official telegram-bot-api have similar mechanism with capacity of 100.
+
 [merge_media_group]
 # Whethre to merge media group when...
 

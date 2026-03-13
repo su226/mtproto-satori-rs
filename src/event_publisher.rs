@@ -38,9 +38,11 @@ struct MediaGroup {
     messages: Vec<Message>,
 }
 
+const BROADCAST_CAPACITY: usize = 100;
+
 pub struct EventPublisher {
     tx: broadcast::Sender<Event>,
-    pub queue: Mutex<VecDeque<Event>>,
+    queue: Mutex<VecDeque<Event>>,
     self_info_cache: Arc<Mutex<SelfInfoCache>>,
     settings: Arc<Settings>,
     sn: Mutex<u32>,
@@ -50,8 +52,8 @@ pub struct EventPublisher {
 impl EventPublisher {
     pub fn new(self_info_cache: Arc<Mutex<SelfInfoCache>>, settings: Arc<Settings>) -> Self {
         Self {
-            tx: broadcast::channel(100).0,
-            queue: Mutex::new(VecDeque::with_capacity(100)),
+            tx: broadcast::channel(BROADCAST_CAPACITY).0,
+            queue: Mutex::new(VecDeque::with_capacity(settings.recovery_events)),
             self_info_cache,
             settings: settings,
             sn: Mutex::new(0),
@@ -73,8 +75,9 @@ impl EventPublisher {
         let mut sn = self.sn.lock().await;
         event.sn = *sn;
         *sn += 1;
+        drop(sn);
         let mut queue = self.queue.lock().await;
-        if queue.len() >= 100 {
+        if queue.len() >= self.settings.recovery_events {
             queue.pop_front();
         }
         queue.push_back(event.clone());
@@ -315,7 +318,7 @@ async fn events_service(
                             loop_stop_tx1.subscribe(),
                         ));
                         if let Some(sn) = identify.sn {
-                            resume_events(publisher.clone(), sink.clone(), sn).await;
+                            recovery_events(publisher.clone(), sink.clone(), sn).await;
                         }
                         None
                     } else {
@@ -453,7 +456,7 @@ async fn send_events(
     debug!("Stopping send_events.");
 }
 
-async fn resume_events(publisher: Arc<EventPublisher>, sink: ws::WsSink, sn: u32) {
+async fn recovery_events(publisher: Arc<EventPublisher>, sink: ws::WsSink, sn: u32) {
     for event in publisher.get_events_from(sn).await {
         let serialized = match serde_json::to_string(&WsOp::Event(event)) {
             Ok(data) => data,

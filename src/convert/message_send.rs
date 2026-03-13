@@ -602,7 +602,7 @@ fn image_mime_valid(mime: &str) -> bool {
 
 fn get_mime_extension(mime: &str) -> &'static str {
     match mime {
-        "image/jpeg" => "jpg", // Telegram don't recognize .jfif
+        "image/jpeg" => "jpg", // Telegram doesn't recognize .jfif
         mime => get_mime_extensions_str(mime).map(|x| x[0]).unwrap_or("bin"),
     }
 }

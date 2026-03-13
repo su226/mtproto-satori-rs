@@ -11,31 +11,35 @@ fn default_merge_media_group_receive() -> u64 {
     100
 }
 
-fn default_merge_media_group() -> MergeMediaGroup {
-    MergeMediaGroup { receive: 100 }
+impl Default for MergeMediaGroup {
+    fn default() -> Self {
+        Self { receive: 100 }
+    }
 }
 
 #[derive(Deserialize)]
 pub struct Settings {
     #[serde(default = "default_bind")]
     pub bind: String,
-    #[serde(default = "default_empty")]
+    #[serde(default)]
     pub path: String,
-    #[serde(default = "default_empty")]
+    #[serde(default)]
     pub token: String,
     #[serde(default = "default_json_size_limit")]
     pub json_size_limit: usize,
     pub api_id: i32,
     pub api_hash: String,
-    #[serde(default = "default_empty")]
+    #[serde(default)]
     pub phone: String,
-    #[serde(default = "default_empty")]
+    #[serde(default)]
     pub password: String,
-    #[serde(default = "default_empty")]
+    #[serde(default)]
     pub bot_token: String,
-    #[serde(default = "default_empty")]
+    #[serde(default)]
     pub proxy: String,
-    #[serde(default = "default_merge_media_group")]
+    #[serde(default)]
+    pub recovery_events: usize,
+    #[serde(default)]
     pub merge_media_group: MergeMediaGroup,
 }
 
@@ -45,10 +49,6 @@ fn default_bind() -> String {
 
 fn default_json_size_limit() -> usize {
     10 * 1024 * 1024
-}
-
-fn default_empty() -> String {
-    String::new()
 }
 
 impl Settings {
