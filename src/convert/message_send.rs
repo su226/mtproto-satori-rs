@@ -4,6 +4,7 @@ use std::{
     io::{self, Cursor},
     mem::replace,
     path::{Path, PathBuf},
+    sync::LazyLock,
 };
 
 use async_tempfile::TempFile;
@@ -30,8 +31,7 @@ use grammers_client::{
 use grammers_session::types::PeerKind;
 use image::{ImageError, ImageFormat, ImageReader, ImageResult};
 use infer::Infer;
-use lazy_static::lazy_static;
-use log::debug;
+use log::{debug, trace};
 use mime_guess::get_mime_extensions_str;
 use ntex::{http::StatusCode, rt::spawn_blocking};
 use regex::Regex;
@@ -473,10 +473,10 @@ pub fn parse_reply(reply: Option<&str>) -> Result<Option<i32>, MyError> {
     }
 }
 
-lazy_static! {
-    static ref BASE64_HEADER_REGEX: Regex = Regex::new(r"^data:([\w/.+-]+);base64,").unwrap();
-    static ref MIME_SPLIT_REGEX: Regex = Regex::new(r"[;,]").unwrap();
-}
+static BASE64_HEADER_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^data:([\w/.+-]+);base64,").unwrap());
+static MIME_SPLIT_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[;,]").unwrap());
+static REQWEST_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(reqwest::Client::new);
 
 fn tempfile_err_to_io_err(err: async_tempfile::Error) -> io::Error {
     match err {
@@ -509,11 +509,7 @@ async fn upload_media(
             let ext = Infer::new()
                 .get(&data)
                 .map(|x| x.extension())
-                .unwrap_or_else(|| {
-                    mime_guess::get_mime_extensions_str(header.get(1).unwrap().as_str())
-                        .map(|x| x[0])
-                        .unwrap_or("bin")
-                });
+                .unwrap_or_else(|| get_mime_extension(header.get(1).unwrap().as_str()));
             format!("file.{}", ext)
         };
         let size = data.len();
@@ -535,7 +531,9 @@ async fn upload_media(
         upload_file_custom_name(client, &path, name).await
     } else {
         debug!("Uploading file {}", url);
-        let mut response = reqwest::get(url)
+        let mut response = REQWEST_CLIENT
+            .get(url)
+            .send()
             .await
             .map_err(|err| io::Error::other(err))?;
         let name = if let Some(name) = name
@@ -602,6 +600,13 @@ fn image_mime_valid(mime: &str) -> bool {
     mime == "image/jpeg" || mime == "image/png" || mime == "image/gif"
 }
 
+fn get_mime_extension(mime: &str) -> &'static str {
+    match mime {
+        "image/jpeg" => "jpg", // Telegram don't recognize .jfif
+        mime => get_mime_extensions_str(mime).map(|x| x[0]).unwrap_or("bin"),
+    }
+}
+
 async fn upload_image(
     client: &Client,
     element: &Element,
@@ -621,10 +626,12 @@ async fn upload_image(
             .map(|x| (x.mime_type(), x.extension()))
             .unwrap_or_else(|| {
                 let mime = header.get(1).unwrap().as_str();
-                let ext = get_mime_extensions_str(mime).map(|x| x[0]).unwrap_or("bin");
+                let ext = get_mime_extension(mime);
                 (mime, ext)
             });
+        trace!("MIME is {}, extension should be {}", mime, ext);
         if !image_mime_valid(mime) {
+            trace!("MIME invalid, converting...");
             let image = ImageReader::new(Cursor::new(data))
                 .decode()
                 .map_err(image_err_to_io_err)?;
@@ -639,20 +646,21 @@ async fn upload_image(
         let name = if let Some(name) = name
             && !name.is_empty()
         {
+            trace!("Passed name is {}", name);
             if extension_match(name, ext) {
                 name.to_string()
             } else {
                 format!("{}.{}", name, ext)
             }
         } else {
+            trace!("No passed name");
             format!("file.{}", ext)
         };
+        trace!("Final name is {}", name);
         let size = data.len();
         let mut stream = Cursor::new(data);
-        Ok((
-            client.upload_stream(&mut stream, size, name).await?,
-            mime.to_string(),
-        ))
+        let uploaded = client.upload_stream(&mut stream, size, name).await?;
+        Ok((uploaded, mime.to_string()))
     } else if url.starts_with("file:") {
         debug!("Uploading image {}", url);
         let mut path = &Url::parse(url)
@@ -663,8 +671,10 @@ async fn upload_image(
             .get_from_path(path)?
             .map(|x| (x.mime_type(), x.extension()))
             .unwrap_or(("application/octet-stream", "bin"));
+        trace!("MIME is {}, extension should be {}", mime, ext);
         let mut tempfile = None;
         if !image_mime_valid(mime) {
+            trace!("MIME invalid, converting...");
             let mut dir = PathBuf::new();
             dir.push(format!("files_{}", session_name));
             fs::create_dir_all(&dir).await?;
@@ -674,6 +684,7 @@ async fn upload_image(
                     .map_err(tempfile_err_to_io_err)?,
             );
             let new_path = tempfile.as_ref().unwrap().file_path();
+            convert_image(path, new_path).await?;
             path = new_path;
             mime = "image/png";
             ext = "png";
@@ -681,15 +692,17 @@ async fn upload_image(
         let name = if let Some(name) = name
             && !name.is_empty()
         {
-            name.to_string()
-        } else {
-            path.file_name().unwrap().to_string_lossy().to_string()
-        };
-        let name = if extension_match(&name, ext) {
             name
+        } else {
+            &*path.file_name().unwrap().to_string_lossy()
+        };
+        trace!("Passed name is {}", name);
+        let name = if extension_match(&name, ext) {
+            name.to_string()
         } else {
             format!("{}.{}", name, ext)
         };
+        trace!("Final name is {}", name);
         let result = upload_file_custom_name(client, &path, Some(name)).await?;
         drop(tempfile);
         Ok((result, mime.to_string()))
@@ -704,13 +717,11 @@ async fn upload_image(
             .and_then(|x| x.to_str().ok())
             .map(|x| MIME_SPLIT_REGEX.splitn(x, 1).next().unwrap().to_string())
             .map(|x| {
-                let ext = get_mime_extensions_str(&x)
-                    .map(|x| x[0])
-                    .unwrap_or("bin")
-                    .to_string();
-                (x, ext)
+                let ext = get_mime_extension(&x);
+                (x, ext.to_string())
             })
             .unwrap_or(("application/octet-stream".to_string(), "bin".to_string()));
+        trace!("MIME is {}, extension should be {}", mime, ext);
         let name = if let Some(name) = name
             && !name.is_empty()
         {
@@ -724,6 +735,7 @@ async fn upload_image(
                 .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?
                 .to_string()
         };
+        trace!("Passed name is {}", name);
         let mime_valid = image_mime_valid(&mime);
         if let Some(size) = response.content_length()
             && mime_valid
@@ -733,10 +745,12 @@ async fn upload_image(
             } else {
                 format!("{}.{}", name, ext)
             };
+            trace!("Final name is {}", name);
             let stream = &mut StreamReader::new(response.bytes_stream().map_err(io::Error::other));
             let uploaded = client.upload_stream(stream, size as usize, name).await?;
             Ok((uploaded, mime))
         } else {
+            trace!("Content-Length unknown or Content-Type invalid, downloading...");
             let mut dir = PathBuf::new();
             dir.push(format!("files_{}", session_name));
             fs::create_dir_all(&dir).await?;
@@ -748,6 +762,7 @@ async fn upload_image(
             }
             let path = file.file_path();
             if !mime_valid {
+                trace!("MIME invalid, converting...");
                 convert_image(path, path).await?;
                 mime = "image/png".to_string();
                 ext = "png".to_string();
@@ -757,6 +772,7 @@ async fn upload_image(
             } else {
                 format!("{}.{}", name, ext)
             };
+            trace!("Final name is {}", name);
             let uploaded = upload_file_custom_name(client, &path, Some(name)).await?;
             Ok((uploaded, mime))
         }

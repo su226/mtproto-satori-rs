@@ -1,6 +1,5 @@
-use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc, vec};
+use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc, sync::LazyLock, vec};
 
-use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 
 #[derive(Debug, Clone)]
@@ -123,18 +122,19 @@ pub fn strip(elements: Vec<Element>) -> String {
     out
 }
 
-lazy_static! {
-    static ref TAG_REGEX: Regex =
-        Regex::new(r"(?<comment><!--[\s\S]*?-->)|(?<tag><(\/?)([^!\s>/]*)([^>]*?)\s*(\/?)>)")
-            .unwrap();
-    static ref ATTR_REGEX: Regex =
-        Regex::new(r#"([^\s=]+)(?:="(?<value1>[^"]*)"|='(?<value2>[^']*)')?"#).unwrap();
-    static ref UNESCAPE_DEC_REGEX: Regex = Regex::new(r"&#(\d+);").unwrap();
-    static ref UNESCAPE_HEX_REGEX: Regex = Regex::new(r"&#x([0-9a-f]+);").unwrap();
-    static ref UNESCAPE_AMP_REGEX: Regex = Regex::new(r"&(amp|#38|#x26);").unwrap();
-    static ref TRIM_START_REGEX: Regex = Regex::new(r"^\s*\n\s*").unwrap();
-    static ref TRIM_END_REGEX: Regex = Regex::new(r"\s*\n\s*$").unwrap();
-}
+static TAG_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?<comment><!--[\s\S]*?-->)|(?<tag><(\/?)([^!\s>/]*)([^>]*?)\s*(\/?)>)").unwrap()
+});
+static ATTR_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"([^\s=]+)(?:="(?<value1>[^"]*)"|='(?<value2>[^']*)')?"#).unwrap()
+});
+static UNESCAPE_DEC_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"&#(\d+);").unwrap());
+static UNESCAPE_HEX_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"&#x([0-9a-f]+);").unwrap());
+static UNESCAPE_AMP_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"&(amp|#38|#x26);").unwrap());
+static TRIM_START_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*\n\s*").unwrap());
+static TRIM_END_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*\n\s*$").unwrap());
 
 pub fn escape(src: &str, inline: bool) -> String {
     let src = src
