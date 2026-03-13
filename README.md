@@ -9,16 +9,46 @@ Obtain your `api_id` and `api_hash` at <https://my.telegram.org>.
 Create `config.toml`.
 
 ```toml
-bind = "127.0.0.1:5140" # Optional, defaults to "127.0.0.1:5140"
-path = "/satori" # Optional, defaults to ""
-token = "" # Optional, defaults to ""
-json_limit = 10485760 # Optional, defaults to 10485760. If you can't send image with data URLs, try increase it.
-api_id = 12345 # Required, example value here won't work
-api_hash = "0123456789abcdef0123456789abcdef" # Required, example value here won't work
-phone = "" # Either phone or bot_token is required
-password = "" # Required if your account has 2FA
-bot_token = "" # Either phone or bot_token is required
-proxy = "socks5://127.0.0.1:1234" # Optional, only socks5 is supported
+bind = "127.0.0.1:5140"
+# Optional, defaults to "127.0.0.1:5140"
+
+path = "/satori"
+# Optional, defaults to ""
+
+token = ""
+# Optional, defaults to ""
+
+json_size_limit = 10485760
+# Optional, defaults to 10485760(bytes).
+# If you can't send image with data URLs, try increase it.
+
+api_id = 12345
+# Required, example value here won't work
+
+api_hash = "0123456789abcdef0123456789abcdef"
+# Required, example value here won't work
+
+phone = ""
+# Either phone or bot_token is required
+
+password = ""
+# Required if your account has 2FA
+
+bot_token = ""
+# Either phone or bot_token is required
+
+proxy = "socks5://127.0.0.1:1234"
+# Optional, only socks5 is supported
+
+[merge_media_group]
+# Whethre to merge media group when...
+
+receive = 100
+# Optional, default to 100(ms).
+# When receive messages, wait for a period to fully receive media groups.
+# Higher value means higher latency when receiving media groups.
+# If media groups are incomplete, try increase it.
+# Set to 0 to disable.
 ```
 
 Start with `cargo run`.

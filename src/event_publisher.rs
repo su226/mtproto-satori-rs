@@ -1,63 +1,193 @@
-use crate::{
-    convert::{event::satori_event_from_tg_update, login::satori_login_from_tg_user},
-    error::MyError,
-    satori::types::{Event, WsOp, WsReadyBody},
-    self_info_cache::SelfInfoCache,
-    settings::Settings,
-};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+use std::time::Instant;
+
 use grammers_client::Client;
-use grammers_client::update::Update;
+use grammers_client::update::{Message, Update};
 use grammers_session::updates::UpdatesLike;
 use log::{debug, trace, warn};
-use ntex::time::sleep;
 use ntex::web::types::State;
 use ntex::web::{self, HttpRequest, HttpResponse, ws};
 use ntex::ws::error::ProtocolError;
 use ntex::{Service, chain, fn_service, rt};
+use ntex::{rt::spawn, time::sleep};
 use ntex::{
     service::{fn_factory_with_config, fn_shutdown, map_config},
     ws::Item,
 };
-use std::sync::Arc;
-use std::time::Duration;
-use std::time::Instant;
 use tokio::{
     select,
     sync::{Mutex, broadcast, mpsc},
 };
 
+use crate::convert::event::satori_event_from_tg_callback;
+use crate::convert::event::satori_event_from_tg_message;
+use crate::convert::event::satori_event_from_tg_messages;
+use crate::{
+    convert::login::satori_login_from_tg_user,
+    error::MyError,
+    satori::types::{Event, WsOp, WsReadyBody},
+    self_info_cache::SelfInfoCache,
+    settings::Settings,
+};
+
+struct MediaGroup {
+    time: Instant,
+    messages: Vec<Message>,
+}
+
 pub struct EventPublisher {
-    tx: broadcast::Sender<(Update, Option<Event>)>,
+    tx: broadcast::Sender<Event>,
     self_info_cache: Arc<Mutex<SelfInfoCache>>,
-    token: String,
+    settings: Arc<Settings>,
+    sn: Mutex<u32>,
+    media_groups: Mutex<HashMap<i64, MediaGroup>>,
 }
 
 impl EventPublisher {
-    pub fn new(self_info_cache: Arc<Mutex<SelfInfoCache>>, settings: &Settings) -> Self {
+    pub fn new(self_info_cache: Arc<Mutex<SelfInfoCache>>, settings: Arc<Settings>) -> Self {
         Self {
             tx: broadcast::channel(100).0,
             self_info_cache,
-            token: settings.token.clone(),
+            settings: settings,
+            sn: Mutex::new(0),
+            media_groups: Mutex::new(HashMap::new()),
         }
     }
 
     fn authorize(&self, token: &Option<String>) -> bool {
-        if self.token.is_empty() {
+        if self.settings.token.is_empty() {
             true
         } else if let Some(token) = token {
-            *token == self.token
+            *token == self.settings.token
         } else {
             false
         }
     }
 
+    async fn send(&self, mut event: Event) {
+        let mut sn = self.sn.lock().await;
+        event.sn = *sn;
+        *sn += 1;
+        // Send will fail when no clients.
+        let _ = self.tx.send(event);
+    }
+
+    async fn handle(self: Arc<Self>, update: Update) {
+        match &update {
+            Update::NewMessage(message) => {
+                if self.settings.merge_media_group.receive > 0
+                    && let Some(group_id) = message.grouped_id()
+                {
+                    let mut media_groups = self.media_groups.lock().await;
+                    let mut messages = if let Some(group) = media_groups.remove(&group_id) {
+                        group.messages
+                    } else {
+                        Vec::new()
+                    };
+                    let now = Instant::now();
+                    messages.push(message.clone());
+                    media_groups.insert(
+                        group_id,
+                        MediaGroup {
+                            time: now,
+                            messages,
+                        },
+                    );
+                    drop(media_groups);
+                    sleep(Duration::from_millis(
+                        self.settings.merge_media_group.receive,
+                    ))
+                    .await;
+                    let mut media_groups = self.media_groups.lock().await;
+                    let group = match media_groups.get(&group_id) {
+                        Some(group) => group,
+                        None => return,
+                    };
+                    if group.time != now {
+                        return;
+                    }
+                    let group = match media_groups.remove(&group_id) {
+                        Some(group) => group,
+                        None => return,
+                    };
+                    drop(media_groups);
+                    let mut messages = group.messages;
+                    messages.sort_by_key(|m| m.id());
+                    let mut self_info_cache = self.self_info_cache.lock().await;
+                    let login = match self_info_cache.get().await {
+                        Ok(user) => user,
+                        Err(err) => {
+                            warn!(
+                                "Failed to get login info, event won't be published: {:?}",
+                                err
+                            );
+                            return;
+                        }
+                    };
+                    drop(self_info_cache);
+                    let contents = messages.iter().map(|x| &**x).collect::<Vec<_>>();
+                    let event = satori_event_from_tg_messages(&login, contents.as_slice());
+                    debug!("Received message: {:#?} => {:#?}", messages, event);
+                    self.send(event).await;
+                } else {
+                    let mut self_info_cache = self.self_info_cache.lock().await;
+                    let login = match self_info_cache.get().await {
+                        Ok(user) => user,
+                        Err(err) => {
+                            warn!(
+                                "Failed to get login info, event won't be published: {:?}",
+                                err
+                            );
+                            return;
+                        }
+                    };
+                    drop(self_info_cache);
+                    let event = satori_event_from_tg_message(&login, &message);
+                    debug!("Received message: {:#?} => {:#?}", message, event);
+                    self.send(event).await;
+                }
+            }
+            Update::CallbackQuery(callback) => {
+                let mut self_info_cache = self.self_info_cache.lock().await;
+                let login = match self_info_cache.get().await {
+                    Ok(user) => user,
+                    Err(err) => {
+                        warn!(
+                            "Failed to get login info, event won't be published: {:?}",
+                            err
+                        );
+                        return;
+                    }
+                };
+                drop(self_info_cache);
+                if let Err(err) = callback.answer().send().await {
+                    warn!("Failed to answer callback query: {:?}", err);
+                }
+                let message = match callback.load_message().await {
+                    Ok(message) => message,
+                    Err(err) => {
+                        warn!("Failed to get callback query message: {:?}", err);
+                        return;
+                    }
+                };
+                let event = satori_event_from_tg_callback(&login, &callback, &message);
+                debug!("Received callback: {:#?} => {:#?}", callback, event);
+                self.send(event).await;
+            }
+            _ => {
+                debug!("Received unsupported update: {:#?}", update);
+            }
+        }
+    }
+
     pub async fn publish(
-        &self,
+        self: Arc<Self>,
         client: Arc<Client>,
         updates: mpsc::UnboundedReceiver<UpdatesLike>,
     ) {
         let mut updates = client.stream_updates(updates, Default::default()).await;
-        let mut sn = 0;
         loop {
             let update = match updates.next().await {
                 Ok(update) => update,
@@ -66,45 +196,7 @@ impl EventPublisher {
                     continue;
                 }
             };
-            let mut self_info_cache = self.self_info_cache.lock().await;
-            let login = match self_info_cache.get().await {
-                Ok(user) => user,
-                Err(err) => {
-                    warn!(
-                        "Failed to get login info, event won't be published: {:?}",
-                        err
-                    );
-                    continue;
-                }
-            };
-            drop(self_info_cache);
-            let additional_message = match &update {
-                Update::CallbackQuery(callback) => {
-                    if let Err(err) = callback.answer().send().await {
-                        warn!("Failed to answer callback query: {:?}", err);
-                    }
-                    match callback.load_message().await {
-                        Ok(message) => Some(message),
-                        Err(err) => {
-                            warn!("Failed to get callback query message: {:?}", err);
-                            None
-                        }
-                    }
-                }
-                _ => None,
-            };
-            let mut event =
-                satori_event_from_tg_update(&login, &update, additional_message.as_ref());
-            match event {
-                Some(ref mut event) => {
-                    event.sn = sn;
-                    sn += 1;
-                    debug!("Received update: {:#?} => {:#?}", update, event);
-                }
-                None => debug!("Received unsupported update: {:#?}", update),
-            }
-            // Send will fail when no clients.
-            let _ = self.tx.send((update, event));
+            spawn(self.clone().handle(update));
         }
     }
 }
@@ -305,23 +397,19 @@ async fn check_heartbeat(
 
 async fn send_events(
     sink: ws::WsSink,
-    mut event_rx: broadcast::Receiver<(Update, Option<Event>)>,
+    mut event_rx: broadcast::Receiver<Event>,
     mut stop_rx: broadcast::Receiver<()>,
 ) {
     let mut running = true;
     while running {
         select! {
             _ = async {
-                let (_, event) = match event_rx.recv().await {
+                let event = match event_rx.recv().await {
                     Ok(update) => update,
                     Err(err) => {
                         warn!("Receive channel is lagging behind: {:?}", err);
                         return;
                     }
-                };
-                let event = match event {
-                    Some(event) => event,
-                    None => return,
                 };
                 let serialized = match serde_json::to_string(&WsOp::Event(event)) {
                     Ok(data) => data,

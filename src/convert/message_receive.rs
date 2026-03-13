@@ -309,10 +309,10 @@ fn extract_reply_info(message: &grammers_client::message::Message) -> Option<Rep
     }
 }
 
-pub fn satori_message_from_tg_message(
+pub fn satori_elements_from_tg_message(
     self_id: i64,
     message: &grammers_client::message::Message,
-) -> Message {
+) -> Vec<Element> {
     let mut elements = Vec::<Element>::new();
 
     if let Some(info) = extract_reply_info(message) {
@@ -422,9 +422,16 @@ pub fn satori_message_from_tg_message(
         _ => {}
     }
 
+    elements
+}
+
+pub fn satori_message_from_tg_message(
+    self_id: i64,
+    message: &grammers_client::message::Message,
+) -> Message {
     Message {
         id: message.id().to_string(),
-        content: dump(elements),
+        content: dump(satori_elements_from_tg_message(self_id, message)),
         channel: message
             .peer()
             .map(|peer| satori_channel_from_tg_peer(peer, extract_thread_id(message))),

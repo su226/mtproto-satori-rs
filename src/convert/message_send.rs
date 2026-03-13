@@ -4,7 +4,6 @@ use std::{
     io::{self, Cursor},
     mem::replace,
     path::{Path, PathBuf},
-    time::Instant,
 };
 
 use async_tempfile::TempFile;

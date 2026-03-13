@@ -15,7 +15,10 @@ use grammers_client::{
     Client, SenderPool, SignInError, sender::ConnectionParams, session::storages::SqliteSession,
 };
 use log::debug;
-use ntex::web::{self, types::JsonConfig};
+use ntex::{
+    rt::spawn,
+    web::{self, types::JsonConfig},
+};
 use tokio::sync::Mutex;
 
 use crate::{
@@ -75,7 +78,7 @@ async fn main() -> io::Result<()> {
 
     debug!("Logging in.");
 
-    tokio::spawn(pool.runner.run());
+    spawn(pool.runner.run());
 
     let user = if client
         .is_authorized()
@@ -109,12 +112,17 @@ async fn main() -> io::Result<()> {
     debug!("Logged in as: {} ({})", user.full_name(), user.id());
 
     let self_info_cache = Arc::new(Mutex::new(SelfInfoCache::new(user, client.clone())));
-    let event_publisher = Arc::new(EventPublisher::new(self_info_cache.clone(), &settings));
+    let event_publisher = Arc::new(EventPublisher::new(
+        self_info_cache.clone(),
+        settings.clone(),
+    ));
     let session_name = Arc::new(SessionName(session_name));
 
-    tokio::spawn((async |client, publisher: Arc<EventPublisher>| {
-        publisher.publish(client, pool.updates).await
-    })(client.clone(), event_publisher.clone()));
+    spawn(
+        event_publisher
+            .clone()
+            .publish(client.clone(), pool.updates),
+    );
 
     let bind = &settings.clone().bind;
 
@@ -130,7 +138,7 @@ async fn main() -> io::Result<()> {
             .state(self_info_cache.clone())
             .state(event_publisher.clone())
             .state(session_name.clone())
-            .state(JsonConfig::default().limit(settings.json_limit))
+            .state(JsonConfig::default().limit(settings.json_size_limit))
             .service(
                 web::scope(path)
                     .middleware(SatoriAuthorization)

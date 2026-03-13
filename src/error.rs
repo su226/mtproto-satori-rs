@@ -1,12 +1,10 @@
-use std::{io, num::ParseIntError};
+use std::{fmt::Display, io, num::ParseIntError};
 
 use base64::DecodeError;
-use derive_more::Display;
 use grammers_client::{InvocationError, tl::deserialize};
 use ntex::{http::StatusCode, web, ws::error::ProtocolError};
 
-#[derive(Display, Debug)]
-#[display("{code} {reason}")]
+#[derive(Debug)]
 pub struct MyError {
     code: StatusCode,
     reason: String,
@@ -15,6 +13,12 @@ pub struct MyError {
 impl MyError {
     pub fn new(code: StatusCode, reason: String) -> Self {
         Self { code, reason }
+    }
+}
+
+impl Display for MyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{} {}", self.code, self.reason))
     }
 }
 
