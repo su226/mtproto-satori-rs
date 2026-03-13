@@ -1,3 +1,4 @@
 /target
-config.toml
-session_*.db
+/config.toml
+/session_*.db
+/files_*

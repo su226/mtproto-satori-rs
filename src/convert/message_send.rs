@@ -4,6 +4,7 @@ use std::{
     io::{self, Cursor},
     mem::replace,
     path::{Path, PathBuf},
+    time::Instant,
 };
 
 use async_tempfile::TempFile;
@@ -599,7 +600,7 @@ async fn convert_image(path: &Path, out_path: &Path) -> io::Result<()> {
 }
 
 fn image_mime_valid(mime: &str) -> bool {
-    mime == "image/jpg" || mime == "image/png" || mime == "image/gif"
+    mime == "image/jpeg" || mime == "image/png" || mime == "image/gif"
 }
 
 async fn upload_image(
@@ -734,10 +735,8 @@ async fn upload_image(
                 format!("{}.{}", name, ext)
             };
             let stream = &mut StreamReader::new(response.bytes_stream().map_err(io::Error::other));
-            Ok((
-                client.upload_stream(stream, size as usize, name).await?,
-                mime,
-            ))
+            let uploaded = client.upload_stream(stream, size as usize, name).await?;
+            Ok((uploaded, mime))
         } else {
             let mut dir = PathBuf::new();
             dir.push(format!("files_{}", session_name));
@@ -759,10 +758,8 @@ async fn upload_image(
             } else {
                 format!("{}.{}", name, ext)
             };
-            Ok((
-                upload_file_custom_name(client, &path, Some(name)).await?,
-                mime,
-            ))
+            let uploaded = upload_file_custom_name(client, &path, Some(name)).await?;
+            Ok((uploaded, mime))
         }
     }
 }
