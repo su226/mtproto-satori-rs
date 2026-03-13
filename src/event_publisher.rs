@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
@@ -39,6 +40,7 @@ struct MediaGroup {
 
 pub struct EventPublisher {
     tx: broadcast::Sender<Event>,
+    pub queue: Mutex<VecDeque<Event>>,
     self_info_cache: Arc<Mutex<SelfInfoCache>>,
     settings: Arc<Settings>,
     sn: Mutex<u32>,
@@ -49,6 +51,7 @@ impl EventPublisher {
     pub fn new(self_info_cache: Arc<Mutex<SelfInfoCache>>, settings: Arc<Settings>) -> Self {
         Self {
             tx: broadcast::channel(100).0,
+            queue: Mutex::new(VecDeque::with_capacity(100)),
             self_info_cache,
             settings: settings,
             sn: Mutex::new(0),
@@ -70,6 +73,12 @@ impl EventPublisher {
         let mut sn = self.sn.lock().await;
         event.sn = *sn;
         *sn += 1;
+        let mut queue = self.queue.lock().await;
+        if queue.len() >= 100 {
+            queue.pop_front();
+        }
+        queue.push_back(event.clone());
+        drop(queue);
         // Send will fail when no clients.
         let _ = self.tx.send(event);
     }
@@ -199,6 +208,18 @@ impl EventPublisher {
             spawn(self.clone().handle(update));
         }
     }
+
+    pub async fn get_events_from(&self, sn: u32) -> Vec<Event> {
+        let mut to_send = Vec::new();
+        let queue = self.queue.lock().await;
+        to_send.extend(
+            queue
+                .iter()
+                .filter(|event| event.sn > sn)
+                .map(|event| event.clone()),
+        );
+        to_send
+    }
 }
 
 struct ClientState {
@@ -293,6 +314,9 @@ async fn events_service(
                             publisher.tx.subscribe(),
                             loop_stop_tx1.subscribe(),
                         ));
+                        if let Some(sn) = identify.sn {
+                            resume_events(publisher.clone(), sink.clone(), sn).await;
+                        }
                         None
                     } else {
                         warn!("Invalid WebSocket token received.");
@@ -427,4 +451,20 @@ async fn send_events(
         }
     }
     debug!("Stopping send_events.");
+}
+
+async fn resume_events(publisher: Arc<EventPublisher>, sink: ws::WsSink, sn: u32) {
+    for event in publisher.get_events_from(sn).await {
+        let serialized = match serde_json::to_string(&WsOp::Event(event)) {
+            Ok(data) => data,
+            Err(err) => {
+                warn!("Failed to serialize event: {:?}", err);
+                return;
+            }
+        };
+        match sink.send(ws::Message::Text(serialized.into())).await {
+            Ok(_) => (),
+            Err(err) => warn!("Failed to send event: {:?}", err),
+        }
+    }
 }
