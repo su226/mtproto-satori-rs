@@ -9,11 +9,17 @@ mod session;
 mod settings;
 mod telegram;
 
-use std::{io, sync::Arc};
+use std::{
+    io,
+    net::{SocketAddrV4, SocketAddrV6},
+    str::FromStr,
+    sync::Arc,
+};
 
 use grammers_client::{
     Client, SenderPool, SignInError, sender::ConnectionParams, session::storages::SqliteSession,
 };
+use grammers_session::{Session, types::DcOption};
 use log::debug;
 use ntex::{
     rt::spawn,
@@ -59,12 +65,27 @@ async fn main() -> io::Result<()> {
                 .expect("Invalid bot token")
         )
     };
+    let session_name = if settings.test_mode {
+        format!("test_{}", session_name)
+    } else {
+        session_name
+    };
 
     let session = Arc::new(
         SqliteSession::open(format!("session_{}.db", session_name))
             .await
             .expect("Failed to open session database"),
     );
+    if settings.test_mode {
+        session
+            .set_dc_option(&DcOption {
+                id: 2,
+                ipv4: SocketAddrV4::from_str("149.154.167.40:80").unwrap(),
+                ipv6: SocketAddrV6::from_str("[2001:67c:4e8:f002::e]:80").unwrap(),
+                auth_key: None,
+            })
+            .await;
+    }
     let params = ConnectionParams {
         proxy_url: if settings.proxy.is_empty() {
             None

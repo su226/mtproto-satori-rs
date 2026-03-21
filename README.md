@@ -15,7 +15,7 @@ bind = "127.0.0.1:5140"
 path = "/satori"
 # Optional, defaults to ""
 
-token = ""
+token = "0123456789abcdef"
 # Optional, defaults to ""
 
 json_size_limit = 10485760
@@ -37,6 +37,11 @@ password = ""
 bot_token = ""
 # Either phone or bot_token is required
 
+test_mode = false
+# Optional, defaults to false
+# Log into Telegram's test server.
+# See https://core.telegram.org/api/auth#test-accounts
+
 proxy = "socks5://127.0.0.1:1234"
 # Optional, only socks5 is supported
 
@@ -47,6 +52,7 @@ recovery_events = 100
 # Official telegram-bot-api have similar mechanism with capacity of 100.
 
 [merge_media_group]
+# Optional
 # Whethre to merge media group when...
 
 receive = 100

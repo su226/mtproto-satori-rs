@@ -36,6 +36,8 @@ pub struct Settings {
     #[serde(default)]
     pub bot_token: String,
     #[serde(default)]
+    pub test_mode: bool,
+    #[serde(default)]
     pub proxy: String,
     #[serde(default)]
     pub recovery_events: usize,
