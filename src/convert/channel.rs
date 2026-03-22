@@ -3,7 +3,7 @@ use grammers_client::peer::Peer;
 use grammers_session::types::PeerId;
 use ntex::http::StatusCode;
 
-use crate::error::MyError;
+use crate::error::WebError;
 use crate::satori::types::{Channel, ChannelType};
 use crate::telegram::peer_id_from_bot_api_id;
 
@@ -30,7 +30,7 @@ pub fn satori_channel_from_tg_peer(peer: &Peer, thread_id: Option<i32>) -> Chann
 pub async fn tg_peer_id_from_satori_channel_id(
     client: &Client,
     channel_id: &str,
-) -> Result<(PeerId, Option<i32>), MyError> {
+) -> Result<(PeerId, Option<i32>), WebError> {
     let (peer_id, thread_id) = if let Some((peer_id, thread_id)) = channel_id.split_once(":") {
         (peer_id, Some(thread_id))
     } else {
@@ -38,23 +38,22 @@ pub async fn tg_peer_id_from_satori_channel_id(
     };
     let peer_id = if let Ok(id) = peer_id.parse::<i64>() {
         peer_id_from_bot_api_id(id)
-            .ok_or_else(|| MyError::new(StatusCode::BAD_REQUEST, "Peer ID invalid.".to_string()))?
+            .ok_or_else(|| WebError::new(StatusCode::BAD_REQUEST, "Peer ID invalid.".to_string()))?
     } else {
         client
             .resolve_username(peer_id)
             .await?
             .ok_or_else(|| {
-                MyError::new(StatusCode::BAD_REQUEST, "Username not found.".to_string())
+                WebError::new(StatusCode::BAD_REQUEST, "Username not found.".to_string())
             })?
             .id()
     };
-    let thread_id =
-        if let Some(thread_id) = thread_id {
-            Some(thread_id.parse::<i32>().map_err(|_| {
-                MyError::new(StatusCode::BAD_REQUEST, "Thread ID invalid.".to_string())
-            })?)
-        } else {
-            None
-        };
+    let thread_id = if let Some(thread_id) = thread_id {
+        Some(thread_id.parse::<i32>().map_err(|_| {
+            WebError::new(StatusCode::BAD_REQUEST, "Thread ID invalid.".to_string())
+        })?)
+    } else {
+        None
+    };
     Ok((peer_id, thread_id))
 }

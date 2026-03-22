@@ -36,7 +36,7 @@ use tokio::io::AsyncWriteExt;
 use tokio_util::io::StreamReader;
 use url::Url;
 
-use crate::error::MyError;
+use crate::error::WebError;
 use crate::satori::element::{Element, escape};
 use crate::telegram::{peer_id_from_bot_api_id, upload_file_custom_name};
 
@@ -453,12 +453,12 @@ pub async fn fetch_infos(
     })
 }
 
-pub fn parse_reply(reply: Option<&str>) -> Result<Option<i32>, MyError> {
+pub fn parse_reply(reply: Option<&str>) -> Result<Option<i32>, WebError> {
     if let Some(id) = reply {
         if let Ok(id) = id.parse::<i32>() {
             Ok(Some(id))
         } else {
-            Err(MyError::new(
+            Err(WebError::new(
                 StatusCode::BAD_REQUEST,
                 "Bad reply id".to_string(),
             ))

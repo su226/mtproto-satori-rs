@@ -9,7 +9,7 @@ use ntex::util::Bytes;
 use ntex::web;
 use tokio::sync::Mutex;
 
-use crate::error::MyError;
+use crate::error::WebError;
 use crate::self_info_cache::SelfInfoCache;
 use crate::telegram::file_id::FileId;
 
@@ -26,7 +26,7 @@ async fn internal(
     client: web::types::State<Arc<Client>>,
     self_info_manager: web::types::State<Arc<Mutex<SelfInfoCache>>>,
     path: web::types::Path<(i64, String)>,
-) -> Result<Response, MyError> {
+) -> Result<Response, WebError> {
     let self_id = self_info_manager.lock().await.get_id().bot_api_dialog_id();
     let (user_id, path) = path.into_inner();
     if user_id != self_id {

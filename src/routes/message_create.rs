@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 use crate::convert::channel::tg_peer_id_from_satori_channel_id;
 use crate::convert::message_receive::satori_message_from_tg_message;
 use crate::convert::message_send::{MessageEncoder, fetch_infos, parse_reply, upload_medias};
-use crate::error::MyError;
+use crate::error::WebError;
 use crate::satori::element::parse;
 use crate::satori::types::Message;
 use crate::self_info_cache::SelfInfoCache;
@@ -32,7 +32,7 @@ async fn message_create(
     self_info_cache: web::types::State<Arc<Mutex<SelfInfoCache>>>,
     session_name: web::types::State<Arc<SessionName>>,
     params: web::types::Json<MessageCreateParams>,
-) -> Result<Response, MyError> {
+) -> Result<Response, WebError> {
     let (peer_id, thread_id) =
         tg_peer_id_from_satori_channel_id(&client, &params.0.channel_id).await?;
     debug!("Sending message to {}:{:?}", peer_id, thread_id);
@@ -41,7 +41,7 @@ async fn message_create(
         auth: PeerAuth::default(),
     };
     let elements = parse(&params.0.content)
-        .ok_or_else(|| MyError::new(StatusCode::BAD_REQUEST, "Bad message.".to_string()))?;
+        .ok_or_else(|| WebError::new(StatusCode::BAD_REQUEST, "Bad message.".to_string()))?;
     let infos = fetch_infos(&client, &elements).await?;
     let mut encoder = MessageEncoder::new(infos);
     encoder.render(&elements);

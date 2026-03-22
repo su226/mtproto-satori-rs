@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 
 use crate::convert::channel::tg_peer_id_from_satori_channel_id;
 use crate::convert::message_receive::satori_message_from_tg_message;
-use crate::error::MyError;
+use crate::error::WebError;
 use crate::self_info_cache::SelfInfoCache;
 
 #[derive(Deserialize)]
@@ -23,7 +23,7 @@ async fn message_get(
     client: web::types::State<Arc<Client>>,
     self_info_cache: web::types::State<Arc<Mutex<SelfInfoCache>>>,
     params: web::types::Json<MessageGetParams>,
-) -> Result<Response, MyError> {
+) -> Result<Response, WebError> {
     let (peer_id, _) = tg_peer_id_from_satori_channel_id(&client, &params.channel_id).await?;
     let peer = PeerRef {
         id: peer_id,
@@ -32,7 +32,7 @@ async fn message_get(
     let message_id = params.message_id.parse::<i32>()?;
     let messages = client.get_messages_by_id(peer, &[message_id]).await?;
     let message_not_found = || {
-        MyError::new(
+        WebError::new(
             StatusCode::NOT_FOUND,
             "Message not found or deleted.".to_string(),
         )

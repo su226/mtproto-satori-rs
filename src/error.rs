@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::fmt::Display;
 use std::io;
 use std::num::ParseIntError;
@@ -10,24 +11,26 @@ use ntex::web;
 use ntex::ws::error::ProtocolError;
 
 #[derive(Debug)]
-pub struct MyError {
+pub struct WebError {
     code: StatusCode,
     reason: String,
 }
 
-impl MyError {
+impl WebError {
     pub fn new(code: StatusCode, reason: String) -> Self {
         Self { code, reason }
     }
 }
 
-impl Display for MyError {
+impl Display for WebError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{} {}", self.code, self.reason))
+        write!(f, "{} {}", self.code, self.reason)
     }
 }
 
-impl web::error::WebResponseError for MyError {
+impl Error for WebError {}
+
+impl web::error::WebResponseError for WebError {
     fn error_response(&self, _: &web::HttpRequest) -> web::HttpResponse {
         web::HttpResponse::build(self.status_code())
             .set_header("content-type", "text/html; charset=utf-8")
@@ -39,7 +42,7 @@ impl web::error::WebResponseError for MyError {
     }
 }
 
-impl From<InvocationError> for MyError {
+impl From<InvocationError> for WebError {
     fn from(err: InvocationError) -> Self {
         match err {
             InvocationError::Rpc(ref rpc) => Self {
@@ -55,7 +58,7 @@ impl From<InvocationError> for MyError {
     }
 }
 
-impl From<serde_json::Error> for MyError {
+impl From<serde_json::Error> for WebError {
     fn from(err: serde_json::Error) -> Self {
         Self {
             code: StatusCode::BAD_REQUEST,
@@ -64,7 +67,7 @@ impl From<serde_json::Error> for MyError {
     }
 }
 
-impl From<ParseIntError> for MyError {
+impl From<ParseIntError> for WebError {
     fn from(err: ParseIntError) -> Self {
         Self {
             code: StatusCode::BAD_REQUEST,
@@ -73,7 +76,7 @@ impl From<ParseIntError> for MyError {
     }
 }
 
-impl From<DecodeError> for MyError {
+impl From<DecodeError> for WebError {
     fn from(err: DecodeError) -> Self {
         Self {
             code: StatusCode::BAD_REQUEST,
@@ -82,7 +85,7 @@ impl From<DecodeError> for MyError {
     }
 }
 
-impl From<deserialize::Error> for MyError {
+impl From<deserialize::Error> for WebError {
     fn from(err: deserialize::Error) -> Self {
         Self {
             code: StatusCode::BAD_REQUEST,
@@ -91,7 +94,7 @@ impl From<deserialize::Error> for MyError {
     }
 }
 
-impl From<ProtocolError> for MyError {
+impl From<ProtocolError> for WebError {
     fn from(err: ProtocolError) -> Self {
         Self {
             code: StatusCode::INTERNAL_SERVER_ERROR,
@@ -100,7 +103,7 @@ impl From<ProtocolError> for MyError {
     }
 }
 
-impl From<io::Error> for MyError {
+impl From<io::Error> for WebError {
     fn from(err: io::Error) -> Self {
         Self {
             code: StatusCode::INTERNAL_SERVER_ERROR,

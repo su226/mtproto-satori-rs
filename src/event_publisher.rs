@@ -22,7 +22,7 @@ use crate::convert::event::{
     satori_event_from_tg_messages,
 };
 use crate::convert::login::satori_login_from_tg_user;
-use crate::error::MyError;
+use crate::error::WebError;
 use crate::satori::types::{Event, WsOp, WsReadyBody};
 use crate::self_info_cache::SelfInfoCache;
 use crate::settings::Settings;
@@ -253,7 +253,7 @@ pub async fn events(
 
 async fn events_service(
     (sink, publisher): (ws::WsSink, Arc<EventPublisher>),
-) -> Result<impl Service<ws::Frame, Response = Option<ws::Message>, Error = MyError>, web::Error> {
+) -> Result<impl Service<ws::Frame, Response = Option<ws::Message>, Error = WebError>, web::Error> {
     let state = Arc::new(Mutex::new(ClientState {
         authorized: false,
         last_heartbeat: None,
@@ -267,8 +267,8 @@ async fn events_service(
 
     let buffer: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
 
-    let service = fn_service(async move |frame| -> Result<Option<ws::Message>, MyError> {
-        let handle_op = async |bytes: &[u8]| -> Result<Option<ws::Message>, MyError> {
+    let service = fn_service(async move |frame| -> Result<_, WebError> {
+        let handle_op = async |bytes| -> Result<_, WebError> {
             let op = match serde_json::from_slice::<WsOp>(bytes) {
                 Ok(op) => op,
                 Err(err) => {
