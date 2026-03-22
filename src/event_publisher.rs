@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use grammers_client::Client;
@@ -14,7 +14,7 @@ use ntex::ws::Item;
 use ntex::ws::error::ProtocolError;
 use ntex::{Service, chain, fn_service, rt, web};
 use tokio::select;
-use tokio::sync::{Mutex, broadcast, mpsc};
+use tokio::sync::{Mutex as AMutex, broadcast, mpsc};
 
 use crate::convert::event::{
     satori_event_from_tg_callback,
@@ -37,14 +37,14 @@ const BROADCAST_CAPACITY: usize = 100;
 pub struct EventPublisher {
     tx: broadcast::Sender<Event>,
     queue: Mutex<VecDeque<Event>>,
-    self_info_cache: Arc<Mutex<SelfInfoCache>>,
+    self_info_cache: Arc<AMutex<SelfInfoCache>>,
     settings: Arc<Settings>,
     sn: Mutex<u32>,
     media_groups: Mutex<HashMap<i64, MediaGroup>>,
 }
 
 impl EventPublisher {
-    pub fn new(self_info_cache: Arc<Mutex<SelfInfoCache>>, settings: Arc<Settings>) -> Self {
+    pub fn new(self_info_cache: Arc<AMutex<SelfInfoCache>>, settings: Arc<Settings>) -> Self {
         Self {
             tx: broadcast::channel(BROADCAST_CAPACITY).0,
             queue: Mutex::new(VecDeque::with_capacity(settings.recovery_events)),
@@ -65,12 +65,12 @@ impl EventPublisher {
         }
     }
 
-    async fn send(&self, mut event: Event) {
-        let mut sn = self.sn.lock().await;
+    fn send(&self, mut event: Event) {
+        let mut sn = self.sn.lock().unwrap();
         event.sn = *sn;
         *sn += 1;
         drop(sn);
-        let mut queue = self.queue.lock().await;
+        let mut queue = self.queue.lock().unwrap();
         if queue.len() >= self.settings.recovery_events {
             queue.pop_front();
         }
@@ -86,39 +86,42 @@ impl EventPublisher {
                 if self.settings.merge_media_group.receive > 0
                     && let Some(group_id) = message.grouped_id()
                 {
-                    let mut media_groups = self.media_groups.lock().await;
-                    let mut messages = if let Some(group) = media_groups.remove(&group_id) {
-                        group.messages
-                    } else {
-                        Vec::new()
+                    let now = {
+                        let mut media_groups = self.media_groups.lock().unwrap();
+                        let mut messages = if let Some(group) = media_groups.remove(&group_id) {
+                            group.messages
+                        } else {
+                            Vec::new()
+                        };
+                        let now = Instant::now();
+                        messages.push(message.clone());
+                        media_groups.insert(
+                            group_id,
+                            MediaGroup {
+                                time: now,
+                                messages,
+                            },
+                        );
+                        now
                     };
-                    let now = Instant::now();
-                    messages.push(message.clone());
-                    media_groups.insert(
-                        group_id,
-                        MediaGroup {
-                            time: now,
-                            messages,
-                        },
-                    );
-                    drop(media_groups);
                     sleep(Duration::from_millis(
                         self.settings.merge_media_group.receive,
                     ))
                     .await;
-                    let mut media_groups = self.media_groups.lock().await;
-                    let group = match media_groups.get(&group_id) {
-                        Some(group) => group,
-                        None => return,
+                    let group = {
+                        let mut media_groups = self.media_groups.lock().unwrap();
+                        let group = match media_groups.get(&group_id) {
+                            Some(group) => group,
+                            None => return,
+                        };
+                        if group.time != now {
+                            return;
+                        }
+                        match media_groups.remove(&group_id) {
+                            Some(group) => group,
+                            None => return,
+                        }
                     };
-                    if group.time != now {
-                        return;
-                    }
-                    let group = match media_groups.remove(&group_id) {
-                        Some(group) => group,
-                        None => return,
-                    };
-                    drop(media_groups);
                     let mut messages = group.messages;
                     messages.sort_by_key(|m| m.id());
                     let mut self_info_cache = self.self_info_cache.lock().await;
@@ -136,7 +139,7 @@ impl EventPublisher {
                     let contents = messages.iter().map(|x| &**x).collect::<Vec<_>>();
                     let event = satori_event_from_tg_messages(&login, contents.as_slice());
                     debug!("Received message: {:#?} => {:#?}", messages, event);
-                    self.send(event).await;
+                    self.send(event);
                 } else {
                     let mut self_info_cache = self.self_info_cache.lock().await;
                     let login = match self_info_cache.get().await {
@@ -152,7 +155,7 @@ impl EventPublisher {
                     drop(self_info_cache);
                     let event = satori_event_from_tg_message(&login, message);
                     debug!("Received message: {:#?} => {:#?}", message, event);
-                    self.send(event).await;
+                    self.send(event);
                 }
             }
             Update::CallbackQuery(callback) => {
@@ -180,7 +183,7 @@ impl EventPublisher {
                 };
                 let event = satori_event_from_tg_callback(&login, callback, &message);
                 debug!("Received callback: {:#?} => {:#?}", callback, event);
-                self.send(event).await;
+                self.send(event);
             }
             _ => {
                 debug!("Received unsupported update: {:#?}", update);
@@ -208,7 +211,7 @@ impl EventPublisher {
 
     pub async fn get_events_from(&self, sn: u32) -> Vec<Event> {
         let mut to_send = Vec::new();
-        let queue = self.queue.lock().await;
+        let queue = self.queue.lock().unwrap();
         to_send.extend(queue.iter().filter(|event| event.sn > sn).cloned());
         to_send
     }
@@ -265,7 +268,7 @@ async fn events_service(
     let loop_stop_tx2 = loop_stop_tx1.clone();
     rt::spawn(check_identify(sink.clone(), state.clone(), init_stop_rx));
 
-    let buffer: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+    let buffer: Arc<AMutex<Vec<u8>>> = Arc::new(AMutex::new(Vec::new()));
 
     let service = fn_service(async move |frame| -> Result<_, WebError> {
         let handle_op = async |bytes| -> Result<_, WebError> {
@@ -276,60 +279,62 @@ async fn events_service(
                     return Ok(None);
                 }
             };
-            Ok(match op {
+            match op {
                 WsOp::Identify(identify) => {
-                    let mut state1 = state.lock().await;
-                    if state1.authorized {
-                        warn!("Multiple IDENTIFY received.");
-                        None
-                    } else if publisher.authorize(&identify.token) {
-                        debug!("Successfully authorized WebSocket.");
-                        state1.authorized = true;
-                        let _ = init_stop_tx1.send(()).await;
-                        sink.send(ws::Message::Text(
-                            serde_json::to_string(&WsOp::Ready(WsReadyBody {
-                                logins: vec![satori_login_from_tg_user(
-                                    &publisher.self_info_cache.lock().await.get().await?,
-                                )],
-                                proxy_urls: Vec::new(),
-                            }))?
-                            .into(),
-                        ))
-                        .await?;
-                        rt::spawn(check_heartbeat(
-                            sink.clone(),
-                            state.clone(),
-                            loop_stop_tx1.subscribe(),
-                        ));
-                        rt::spawn(send_events(
-                            sink.clone(),
-                            publisher.tx.subscribe(),
-                            loop_stop_tx1.subscribe(),
-                        ));
-                        if let Some(sn) = identify.sn {
-                            recovery_events(publisher.clone(), sink.clone(), sn).await;
+                    {
+                        let mut state = state.lock().unwrap();
+                        if state.authorized {
+                            warn!("Multiple IDENTIFY received.");
+                            return Ok(None);
                         }
-                        None
-                    } else {
-                        warn!("Invalid WebSocket token received.");
-                        Some(ws::Message::Close(Some(ws::CloseReason {
-                            code: ws::CloseCode::Policy,
-                            description: Some("Invalievent_rxd token.".to_string()),
-                        })))
+                        if !publisher.authorize(&identify.token) {
+                            warn!("Invalid WebSocket token received.");
+                            return Ok(Some(ws::Message::Close(Some(ws::CloseReason {
+                                code: ws::CloseCode::Policy,
+                                description: Some("Invalievent_rxd token.".to_string()),
+                            }))));
+                        }
+                        debug!("Successfully authorized WebSocket.");
+                        state.authorized = true;
                     }
+                    let _ = init_stop_tx1.send(()).await;
+                    sink.send(ws::Message::Text(
+                        serde_json::to_string(&WsOp::Ready(WsReadyBody {
+                            logins: vec![satori_login_from_tg_user(
+                                &publisher.self_info_cache.lock().await.get().await?,
+                            )],
+                            proxy_urls: Vec::new(),
+                        }))?
+                        .into(),
+                    ))
+                    .await?;
+                    rt::spawn(check_heartbeat(
+                        sink.clone(),
+                        state.clone(),
+                        loop_stop_tx1.subscribe(),
+                    ));
+                    rt::spawn(send_events(
+                        sink.clone(),
+                        publisher.tx.subscribe(),
+                        loop_stop_tx1.subscribe(),
+                    ));
+                    if let Some(sn) = identify.sn {
+                        recovery_events(publisher.clone(), sink.clone(), sn).await;
+                    }
+                    Ok(None)
                 }
                 WsOp::Ping => {
                     trace!("WebSocket received PING.");
-                    state.lock().await.last_heartbeat = Some(Instant::now());
-                    Some(ws::Message::Text(
+                    state.lock().unwrap().last_heartbeat = Some(Instant::now());
+                    Ok(Some(ws::Message::Text(
                         serde_json::to_string(&WsOp::Pong)?.into(),
-                    ))
+                    )))
                 }
                 _ => {
                     warn!("{:?} should not be received.", op);
-                    None
+                    Ok(None)
                 }
-            })
+            }
         };
 
         Ok(match frame {
@@ -370,7 +375,7 @@ async fn check_identify(
         _ = sleep(Duration::from_secs(30)) => {},
         _ = stop_rx.recv() => {},
     }
-    if !state.lock().await.authorized {
+    if !state.lock().unwrap().authorized {
         warn!("IDENTIFY not received.");
         sink.send(ws::Message::Close(Some(ws::CloseReason {
             code: ws::CloseCode::Policy,
@@ -393,7 +398,7 @@ async fn check_heartbeat(
         _ = stop_rx.recv() => running = false,
     };
     while running {
-        let Some(duration) = state.lock().await.check_heartbeat() else {
+        let Some(duration) = state.lock().unwrap().check_heartbeat() else {
             warn!("PING not received.");
             sink.send(ws::Message::Close(Some(ws::CloseReason {
                 code: ws::CloseCode::Policy,
