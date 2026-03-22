@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::mem::take;
 use std::rc::Rc;
 use std::sync::LazyLock;
 use std::vec;
@@ -111,7 +112,7 @@ impl Display for Element {
     }
 }
 
-pub fn dump(elements: Vec<Element>) -> String {
+pub fn dump(elements: &[Element]) -> String {
     let mut out = String::new();
     for element in elements {
         out += &element.to_string();
@@ -119,7 +120,7 @@ pub fn dump(elements: Vec<Element>) -> String {
     out
 }
 
-pub fn strip(elements: Vec<Element>) -> String {
+pub fn strip(elements: &[Element]) -> String {
     let mut out = String::new();
     for element in elements {
         out += &element.strip();
@@ -218,35 +219,20 @@ enum TokenTreeLike {
 pub fn parse(src: &str) -> Option<Vec<Element>> {
     let lexed = lex_tokens(src);
     let folded = fold_tokens(lexed)?;
-    let parsed = parse_tokens(&folded);
+    let parsed = parse_tokens(folded);
     Some(parsed)
 }
 
 fn lex_tokens(mut src: &str) -> Vec<TokenLike> {
     let mut tokens = Vec::<TokenLike>::new();
-    // TODO remove trim_start and trim_end as they always true (without "curly" token)?
-    let mut trim_start = true;
     while let Some(tag_match) = TAG_REGEX.captures(src) {
-        let trim_end = true;
-
         let content = unescape(&src[0..tag_match.get_match().start()]);
-        debug_assert!(trim_start);
-        let content = if trim_start {
-            TRIM_START_REGEX.replace(&content, "").to_string()
-        } else {
-            content
-        };
-        debug_assert!(trim_end);
-        let content = if trim_end {
-            TRIM_END_REGEX.replace(&content, "").to_string()
-        } else {
-            content
-        };
+        let content = TRIM_START_REGEX.replace(&content, "");
+        let content = TRIM_END_REGEX.replace(&content, "");
         if !content.is_empty() {
-            tokens.push(TokenLike::Str(content));
+            tokens.push(TokenLike::Str(content.to_string()));
         }
 
-        trim_start = trim_end;
         // TODO use Regex.captures_iter
         src = &src[tag_match.get_match().end()..];
         if tag_match.name("comment").is_some() {
@@ -270,15 +256,10 @@ fn lex_tokens(mut src: &str) -> Vec<TokenLike> {
     }
 
     let content = unescape(src);
-    debug_assert!(trim_start);
-    let content = if trim_start {
-        TRIM_START_REGEX.replace(&content, "").to_string()
-    } else {
-        content
-    };
-    let content = TRIM_END_REGEX.replace(&content, "").to_string();
+    let content = TRIM_START_REGEX.replace(&content, "");
+    let content = TRIM_END_REGEX.replace(&content, "");
     if !content.is_empty() {
-        tokens.push(TokenLike::Str(content));
+        tokens.push(TokenLike::Str(content.to_string()));
     }
 
     tokens
@@ -335,39 +316,37 @@ fn fold_tokens(tokens: Vec<TokenLike>) -> Option<Vec<TokenTreeLike>> {
     return Some(stack.last()?.borrow().children.clone());
 }
 
-fn parse_tokens(tokens: &[TokenTreeLike]) -> Vec<Element> {
+fn parse_tokens(tokens: Vec<TokenTreeLike>) -> Vec<Element> {
     let mut result = Vec::<Element>::new();
 
     for token in tokens {
         match token {
-            TokenTreeLike::Str(content) => result.push(Element::text(content.to_string())),
+            TokenTreeLike::Str(content) => result.push(Element::text(content)),
             TokenTreeLike::Token(token) => {
-                let token = token.borrow();
+                let mut token = token.borrow_mut();
                 let mut attrs = HashMap::new();
-                let mut extra = token.token.extra.as_ref();
-                while let Some(attr_match) = ATTR_REGEX.captures(extra) {
-                    let key = attr_match.get(1).unwrap().as_str().to_string();
+                for attr_match in ATTR_REGEX.captures_iter(&token.token.extra) {
+                    let key = attr_match.get(1).unwrap().as_str();
                     let value = attr_match
                         .name("value1")
                         .or_else(|| attr_match.name("value2"));
                     match value {
                         Some(value) => {
-                            attrs.insert(key, AttrValue::Str(unescape(value.as_str())));
+                            attrs.insert(key.to_string(), AttrValue::Str(unescape(value.as_str())));
                         }
                         None => {
                             if let Some(key) = key.strip_prefix("no-") {
                                 attrs.insert(key.to_string(), AttrValue::Bool(false));
                             } else {
-                                attrs.insert(key, AttrValue::Bool(true));
+                                attrs.insert(key.to_string(), AttrValue::Bool(true));
                             }
                         }
                     }
-                    extra = &extra[attr_match.get_match().end()..];
                 }
                 result.push(Element {
-                    tag: token.token.name.clone(),
+                    tag: take(&mut token.token.name),
                     attrs,
-                    children: parse_tokens(&token.children),
+                    children: parse_tokens(take(&mut token.children)),
                 })
             }
         }

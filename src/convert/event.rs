@@ -51,7 +51,7 @@ pub fn satori_event_from_tg_messages(login: &User, messages: &[&Message]) -> Eve
         .iter()
         .flat_map(|message| satori_elements_from_tg_message(self_id, message))
         .collect::<Vec<_>>();
-    first_msg.content += &dump(other_msgs);
+    first_msg.content += &dump(&other_msgs);
     let user = first_msg.user.clone();
     Event {
         sn: 0,

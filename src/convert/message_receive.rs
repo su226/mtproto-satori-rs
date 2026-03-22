@@ -423,7 +423,7 @@ pub fn satori_message_from_tg_message(
 ) -> Message {
     Message {
         id: message.id().to_string(),
-        content: dump(satori_elements_from_tg_message(self_id, message)),
+        content: dump(&satori_elements_from_tg_message(self_id, message)),
         channel: message
             .peer()
             .map(|peer| satori_channel_from_tg_peer(peer, extract_thread_id(message))),
