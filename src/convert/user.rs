@@ -1,9 +1,7 @@
 use grammers_client::peer::Peer;
 
-use crate::{
-    convert::link::{satori_link_from_tg_peer_photo, satori_link_from_tg_user_photo},
-    satori::types::User,
-};
+use crate::convert::link::{satori_link_from_tg_peer_photo, satori_link_from_tg_user_photo};
+use crate::satori::types::User;
 
 pub fn satori_user_from_tg_user(self_id: i64, user: &grammers_client::peer::User) -> User {
     User {

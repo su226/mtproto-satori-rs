@@ -9,36 +9,33 @@ mod session;
 mod settings;
 mod telegram;
 
-use std::{
-    io,
-    net::{SocketAddrV4, SocketAddrV6},
-    str::FromStr,
-    sync::Arc,
-};
+use std::io;
+use std::net::{SocketAddrV4, SocketAddrV6};
+use std::str::FromStr;
+use std::sync::Arc;
 
-use grammers_client::{
-    Client, SenderPool, SignInError, sender::ConnectionParams, session::storages::SqliteSession,
-};
-use grammers_session::{Session, types::DcOption};
+use grammers_client::sender::ConnectionParams;
+use grammers_client::session::storages::SqliteSession;
+use grammers_client::{Client, SenderPool, SignInError};
+use grammers_session::Session;
+use grammers_session::types::DcOption;
 use log::debug;
-use ntex::{
-    rt::spawn,
-    web::{self, types::JsonConfig},
-};
+use ntex::rt::spawn;
+use ntex::web;
 use tokio::sync::Mutex;
 
-use crate::{
-    authorization::SatoriAuthorization,
-    event_publisher::{EventPublisher, events},
-    routes::{
-        internal::internal, login_get::login_get, message_create::message_create,
-        message_get::message_get, message_update::message_update,
-        user_channel_create::user_channel_create, user_get::user_get,
-    },
-    self_info_cache::SelfInfoCache,
-    session::SessionName,
-    settings::Settings,
-};
+use crate::authorization::SatoriAuthorization;
+use crate::event_publisher::{EventPublisher, events};
+use crate::routes::internal::internal;
+use crate::routes::login_get::login_get;
+use crate::routes::message_create::message_create;
+use crate::routes::message_get::message_get;
+use crate::routes::message_update::message_update;
+use crate::routes::user_channel_create::user_channel_create;
+use crate::routes::user_get::user_get;
+use crate::self_info_cache::SelfInfoCache;
+use crate::session::SessionName;
+use crate::settings::Settings;
 
 #[ntex::main]
 async fn main() -> io::Result<()> {
@@ -159,7 +156,7 @@ async fn main() -> io::Result<()> {
             .state(self_info_cache.clone())
             .state(event_publisher.clone())
             .state(session_name.clone())
-            .state(JsonConfig::default().limit(settings.json_size_limit))
+            .state(web::types::JsonConfig::default().limit(settings.json_size_limit))
             .service(
                 web::scope(path)
                     .middleware(SatoriAuthorization)

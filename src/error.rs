@@ -1,8 +1,13 @@
-use std::{fmt::Display, io, num::ParseIntError};
+use std::fmt::Display;
+use std::io;
+use std::num::ParseIntError;
 
 use base64::DecodeError;
-use grammers_client::{InvocationError, tl::deserialize};
-use ntex::{http::StatusCode, web, ws::error::ProtocolError};
+use grammers_client::InvocationError;
+use grammers_client::tl::deserialize;
+use ntex::http::StatusCode;
+use ntex::web;
+use ntex::ws::error::ProtocolError;
 
 #[derive(Debug)]
 pub struct MyError {

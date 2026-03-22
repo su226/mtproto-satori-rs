@@ -4,21 +4,15 @@ use grammers_client::Client;
 use grammers_client::message::InputMessage;
 use grammers_session::types::{PeerAuth, PeerRef};
 use log::debug;
-use ntex::{
-    http::{Response, StatusCode},
-    web::{self, types::State},
-};
+use ntex::http::{Response, StatusCode};
+use ntex::web;
 use serde::Deserialize;
 
-use crate::{
-    convert::{
-        channel::tg_peer_id_from_satori_channel_id,
-        message_send::{MessageEncoder, fetch_infos, to_reply_markup},
-    },
-    error::MyError,
-    satori::element::parse,
-    telegram::add_reply_markup,
-};
+use crate::convert::channel::tg_peer_id_from_satori_channel_id;
+use crate::convert::message_send::{MessageEncoder, fetch_infos, to_reply_markup};
+use crate::error::MyError;
+use crate::satori::element::parse;
+use crate::telegram::add_reply_markup;
 
 #[derive(Deserialize)]
 struct MessageUpdateParams {
@@ -29,7 +23,7 @@ struct MessageUpdateParams {
 
 #[web::post("/v1/message.update")]
 async fn message_update(
-    client: State<Arc<Client>>,
+    client: web::types::State<Arc<Client>>,
     params: web::types::Json<MessageUpdateParams>,
 ) -> Result<Response, MyError> {
     let (peer_id, thread_id) =

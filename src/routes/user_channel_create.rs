@@ -1,16 +1,12 @@
 use std::sync::Arc;
 
 use grammers_client::Client;
-use ntex::{
-    http::{Response, StatusCode},
-    web::{self, types::State},
-};
+use ntex::http::{Response, StatusCode};
+use ntex::web;
 use serde::Deserialize;
 
-use crate::{
-    error::MyError,
-    satori::types::{Channel, ChannelType},
-};
+use crate::error::MyError;
+use crate::satori::types::{Channel, ChannelType};
 
 #[derive(Deserialize)]
 struct UserChannelCreateParams {
@@ -21,7 +17,7 @@ struct UserChannelCreateParams {
 
 #[web::post("/v1/user.channel.create")]
 async fn user_channel_create(
-    client: State<Arc<Client>>,
+    client: web::types::State<Arc<Client>>,
     params: web::types::Json<UserChannelCreateParams>,
 ) -> Result<Response, MyError> {
     let peer_id = if let Ok(id) = params.0.user_id.parse::<i64>() {

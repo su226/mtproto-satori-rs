@@ -1,8 +1,7 @@
-use crate::{
-    convert::user::satori_user_from_tg_user,
-    satori::types::{Login, LoginStatus},
-};
 use grammers_client::peer::User;
+
+use crate::convert::user::satori_user_from_tg_user;
+use crate::satori::types::{Login, LoginStatus};
 
 pub fn satori_login_from_tg_user(user: &User) -> Login {
     Login {

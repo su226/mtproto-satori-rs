@@ -1,13 +1,11 @@
 use base64::prelude::*;
-use grammers_client::{
-    media::Downloadable,
-    tl::{
-        enums::{InputFileLocation, InputPeer},
-        types::{
-            InputDocumentFileLocation, InputPeerPhotoFileLocation, InputPeerUser,
-            InputPhotoFileLocation,
-        },
-    },
+use grammers_client::media::Downloadable;
+use grammers_client::tl::enums::{InputFileLocation, InputPeer};
+use grammers_client::tl::types::{
+    InputDocumentFileLocation,
+    InputPeerPhotoFileLocation,
+    InputPeerUser,
+    InputPhotoFileLocation,
 };
 
 fn write_array(bytes: &mut Vec<u8>, data: &[u8]) {

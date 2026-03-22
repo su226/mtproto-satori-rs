@@ -1,19 +1,19 @@
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
 use grammers_client::Client;
+use grammers_client::peer::User;
 use grammers_session::types::PeerId;
 use log::debug;
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
 
 pub struct SelfInfoCache {
-    info: grammers_client::peer::User,
+    info: User,
     client: Arc<Client>,
     last_updated: Option<Instant>,
 }
 
 impl SelfInfoCache {
-    pub fn new(info: grammers_client::peer::User, client: Arc<Client>) -> Self {
+    pub fn new(info: User, client: Arc<Client>) -> Self {
         Self {
             info,
             client,
@@ -29,7 +29,7 @@ impl SelfInfoCache {
         }
     }
 
-    pub async fn get(&mut self) -> grammers_client::Result<grammers_client::peer::User> {
+    pub async fn get(&mut self) -> grammers_client::Result<User> {
         if self.should_update() {
             debug!("Self info expired, updating.");
             self.info = self.client.get_me().await?;

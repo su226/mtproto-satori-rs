@@ -1,17 +1,17 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::{
-    convert::{
-        login::satori_login_from_tg_user,
-        message_receive::{satori_elements_from_tg_message, satori_message_from_tg_message},
-        user::satori_user_from_tg_peer,
-    },
-    satori::{
-        element::dump,
-        types::{Button, Event},
-    },
+use grammers_client::message::Message;
+use grammers_client::peer::User;
+use grammers_client::update::CallbackQuery;
+
+use crate::convert::login::satori_login_from_tg_user;
+use crate::convert::message_receive::{
+    satori_elements_from_tg_message,
+    satori_message_from_tg_message,
 };
-use grammers_client::{message::Message, peer::User, update::CallbackQuery};
+use crate::convert::user::satori_user_from_tg_peer;
+use crate::satori::element::dump;
+use crate::satori::types::{Button, Event};
 
 fn timestamp() -> f64 {
     SystemTime::now()

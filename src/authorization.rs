@@ -1,12 +1,12 @@
-use crate::{self_info_cache::SelfInfoCache, settings::Settings};
-use constant_time_eq::constant_time_eq;
-use ntex::{
-    Middleware, Service, ServiceCtx,
-    http::header::{AUTHORIZATION, HeaderValue},
-    web,
-};
 use std::sync::Arc;
+
+use constant_time_eq::constant_time_eq;
+use ntex::http::header::{AUTHORIZATION, HeaderValue};
+use ntex::{Middleware, Service, ServiceCtx, web};
 use tokio::sync::Mutex;
+
+use crate::self_info_cache::SelfInfoCache;
+use crate::settings::Settings;
 
 fn check_authorization(authorization: &HeaderValue, token: &str) -> bool {
     if let Some(authorization) = authorization.as_bytes().strip_prefix(b"Bearer ") {

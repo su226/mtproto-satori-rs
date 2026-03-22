@@ -1,9 +1,7 @@
 use grammers_client::peer::Peer;
 
-use crate::{
-    convert::link::{satori_link_from_tg_channel_photo, satori_link_from_tg_group_photo},
-    satori::types::Guild,
-};
+use crate::convert::link::{satori_link_from_tg_channel_photo, satori_link_from_tg_group_photo};
+use crate::satori::types::Guild;
 
 pub fn satori_guild_from_tg_peer(self_id: i64, peer: &Peer) -> Option<Guild> {
     match peer {

@@ -1,49 +1,44 @@
-use std::{
-    borrow::BorrowMut,
-    collections::{HashMap, HashSet},
-    io::{self, Cursor},
-    mem::replace,
-    path::{Path, PathBuf},
-    sync::LazyLock,
-};
+use std::borrow::BorrowMut;
+use std::collections::{HashMap, HashSet};
+use std::io;
+use std::io::Cursor;
+use std::mem::replace;
+use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 use async_tempfile::TempFile;
 use base64::prelude::*;
 use futures_util::TryStreamExt;
-use grammers_client::{
-    Client, InvocationError,
-    media::{InputMedia, Uploaded},
-    message::{Button, ReplyMarkup},
-    peer::{Channel, Group, Peer, User},
-    tl::{
-        enums::{
-            Document as DocumentEnum, DocumentAttribute, InputChannel as InputChannelEnum,
-            InputUser as InputUserEnum,
-        },
-        functions::{
-            channels::GetChannels,
-            messages::{GetChats, GetCustomEmojiDocuments},
-            users::GetUsers,
-        },
-        types::{Document, InputChannel, InputUser},
-    },
+use grammers_client::media::{InputMedia, Uploaded};
+use grammers_client::message::{Button, ReplyMarkup};
+use grammers_client::peer::{Channel, Group, Peer, User};
+use grammers_client::tl::enums::{
+    Document as DocumentEnum,
+    DocumentAttribute,
+    InputChannel as InputChannelEnum,
+    InputUser as InputUserEnum,
 };
+use grammers_client::tl::functions::channels::GetChannels;
+use grammers_client::tl::functions::messages::{GetChats, GetCustomEmojiDocuments};
+use grammers_client::tl::functions::users::GetUsers;
+use grammers_client::tl::types::{Document, InputChannel, InputUser};
+use grammers_client::{Client, InvocationError};
 use grammers_session::types::PeerKind;
 use image::{ImageError, ImageFormat, ImageReader, ImageResult};
 use infer::Infer;
 use log::{debug, trace};
 use mime_guess::get_mime_extensions_str;
-use ntex::{http::StatusCode, rt::spawn_blocking};
+use ntex::http::StatusCode;
+use ntex::rt::spawn_blocking;
 use regex::Regex;
-use tokio::{fs, io::AsyncWriteExt};
+use tokio::fs;
+use tokio::io::AsyncWriteExt;
 use tokio_util::io::StreamReader;
 use url::Url;
 
-use crate::{
-    error::MyError,
-    satori::element::{Element, escape},
-    telegram::{peer_id_from_bot_api_id, upload_file_custom_name},
-};
+use crate::error::MyError;
+use crate::satori::element::{Element, escape};
+use crate::telegram::{peer_id_from_bot_api_id, upload_file_custom_name};
 
 pub struct MessagePack {
     pub content: String,

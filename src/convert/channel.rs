@@ -1,12 +1,11 @@
-use grammers_client::{Client, peer::Peer};
+use grammers_client::Client;
+use grammers_client::peer::Peer;
 use grammers_session::types::PeerId;
 use ntex::http::StatusCode;
 
-use crate::{
-    error::MyError,
-    satori::types::{Channel, ChannelType},
-    telegram::peer_id_from_bot_api_id,
-};
+use crate::error::MyError;
+use crate::satori::types::{Channel, ChannelType};
+use crate::telegram::peer_id_from_bot_api_id;
 
 pub fn satori_channel_from_tg_peer(peer: &Peer, thread_id: Option<i32>) -> Channel {
     let chat_id = peer.id().bot_api_dialog_id();

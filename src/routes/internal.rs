@@ -2,15 +2,16 @@ use std::sync::Arc;
 
 use async_stream::try_stream;
 use futures_util::Stream;
-use grammers_client::{Client, InvocationError, client::DownloadIter};
-use ntex::{
-    http::Response,
-    util::Bytes,
-    web::{self, types::State},
-};
+use grammers_client::client::DownloadIter;
+use grammers_client::{Client, InvocationError};
+use ntex::http::Response;
+use ntex::util::Bytes;
+use ntex::web;
 use tokio::sync::Mutex;
 
-use crate::{error::MyError, self_info_cache::SelfInfoCache, telegram::file_id::FileId};
+use crate::error::MyError;
+use crate::self_info_cache::SelfInfoCache;
+use crate::telegram::file_id::FileId;
 
 fn download_stream(mut iter: DownloadIter) -> impl Stream<Item = Result<Bytes, InvocationError>> {
     try_stream! {
@@ -22,8 +23,8 @@ fn download_stream(mut iter: DownloadIter) -> impl Stream<Item = Result<Bytes, I
 
 #[web::get("/v1/proxy/internal:telegram/{user_id}/{path}")]
 async fn internal(
-    client: State<Arc<Client>>,
-    self_info_manager: State<Arc<Mutex<SelfInfoCache>>>,
+    client: web::types::State<Arc<Client>>,
+    self_info_manager: web::types::State<Arc<Mutex<SelfInfoCache>>>,
     path: web::types::Path<(i64, String)>,
 ) -> Result<Response, MyError> {
     let self_id = self_info_manager.lock().await.get_id().bot_api_dialog_id();

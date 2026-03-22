@@ -1,37 +1,31 @@
-use std::collections::HashMap;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use grammers_client::Client;
 use grammers_client::update::{Message, Update};
 use grammers_session::updates::UpdatesLike;
 use log::{debug, trace, warn};
-use ntex::web::types::State;
-use ntex::web::{self, HttpRequest, HttpResponse, ws};
+use ntex::rt::spawn;
+use ntex::service::{fn_factory_with_config, fn_shutdown, map_config};
+use ntex::time::sleep;
+use ntex::web::ws;
+use ntex::ws::Item;
 use ntex::ws::error::ProtocolError;
-use ntex::{Service, chain, fn_service, rt};
-use ntex::{rt::spawn, time::sleep};
-use ntex::{
-    service::{fn_factory_with_config, fn_shutdown, map_config},
-    ws::Item,
-};
-use tokio::{
-    select,
-    sync::{Mutex, broadcast, mpsc},
-};
+use ntex::{Service, chain, fn_service, rt, web};
+use tokio::select;
+use tokio::sync::{Mutex, broadcast, mpsc};
 
-use crate::convert::event::satori_event_from_tg_callback;
-use crate::convert::event::satori_event_from_tg_message;
-use crate::convert::event::satori_event_from_tg_messages;
-use crate::{
-    convert::login::satori_login_from_tg_user,
-    error::MyError,
-    satori::types::{Event, WsOp, WsReadyBody},
-    self_info_cache::SelfInfoCache,
-    settings::Settings,
+use crate::convert::event::{
+    satori_event_from_tg_callback,
+    satori_event_from_tg_message,
+    satori_event_from_tg_messages,
 };
+use crate::convert::login::satori_login_from_tg_user;
+use crate::error::MyError;
+use crate::satori::types::{Event, WsOp, WsReadyBody};
+use crate::self_info_cache::SelfInfoCache;
+use crate::settings::Settings;
 
 struct MediaGroup {
     time: Instant,
@@ -249,9 +243,9 @@ impl ClientState {
 
 #[web::get("/v1/events")]
 pub async fn events(
-    req: HttpRequest,
-    publisher: State<Arc<EventPublisher>>,
-) -> Result<HttpResponse, web::Error> {
+    req: web::HttpRequest,
+    publisher: web::types::State<Arc<EventPublisher>>,
+) -> Result<web::HttpResponse, web::Error> {
     ws::start(
         req,
         None::<&str>,

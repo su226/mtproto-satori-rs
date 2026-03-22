@@ -1,7 +1,11 @@
-use grammers_client::{
-    media::{Document, Photo},
-    peer::{Channel, Group, Peer, User},
-    tl::enums::{Chat, Document as DocumentEnum, Photo as PhotoEnum, PhotoSize, User as UserEnum},
+use grammers_client::media::{Document, Photo};
+use grammers_client::peer::{Channel, Group, Peer, User};
+use grammers_client::tl::enums::{
+    Chat,
+    Document as DocumentEnum,
+    Photo as PhotoEnum,
+    PhotoSize,
+    User as UserEnum,
 };
 
 use crate::telegram::file_id::FileId;

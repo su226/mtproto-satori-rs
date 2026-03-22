@@ -2,20 +2,15 @@ use std::sync::Arc;
 
 use grammers_client::Client;
 use grammers_session::types::{PeerAuth, PeerRef};
-use ntex::{
-    http::{Response, StatusCode},
-    web::{self, types::State},
-};
+use ntex::http::{Response, StatusCode};
+use ntex::web;
 use serde::Deserialize;
 use tokio::sync::Mutex;
 
-use crate::{
-    convert::{
-        channel::tg_peer_id_from_satori_channel_id, message_receive::satori_message_from_tg_message,
-    },
-    error::MyError,
-    self_info_cache::SelfInfoCache,
-};
+use crate::convert::channel::tg_peer_id_from_satori_channel_id;
+use crate::convert::message_receive::satori_message_from_tg_message;
+use crate::error::MyError;
+use crate::self_info_cache::SelfInfoCache;
 
 #[derive(Deserialize)]
 struct MessageGetParams {
@@ -25,8 +20,8 @@ struct MessageGetParams {
 
 #[web::post("/v1/message.get")]
 async fn message_get(
-    client: State<Arc<Client>>,
-    self_info_cache: State<Arc<Mutex<SelfInfoCache>>>,
+    client: web::types::State<Arc<Client>>,
+    self_info_cache: web::types::State<Arc<Mutex<SelfInfoCache>>>,
     params: web::types::Json<MessageGetParams>,
 ) -> Result<Response, MyError> {
     let (peer_id, _) = tg_peer_id_from_satori_channel_id(&*client, &params.channel_id).await?;

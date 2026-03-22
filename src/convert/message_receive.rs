@@ -1,25 +1,17 @@
 use std::collections::HashMap;
 
-use grammers_client::{
-    media::Media,
-    tl::enums::{MessageEntity, MessageReplyHeader as MessageReplyHeaderEnum},
-};
+use grammers_client::media::Media;
+use grammers_client::tl::enums::{MessageEntity, MessageReplyHeader as MessageReplyHeaderEnum};
 use grammers_session::types::PeerId;
 use log::trace;
 
-use crate::{
-    convert::{
-        channel::satori_channel_from_tg_peer,
-        guild::satori_guild_from_tg_peer,
-        link::{satori_link_from_tg_document, satori_link_from_tg_photo},
-        user::satori_user_from_tg_peer,
-    },
-    satori::{
-        element::{AttrValue, Element, dump},
-        types::Message,
-    },
-    telegram::is_audio,
-};
+use crate::convert::channel::satori_channel_from_tg_peer;
+use crate::convert::guild::satori_guild_from_tg_peer;
+use crate::convert::link::{satori_link_from_tg_document, satori_link_from_tg_photo};
+use crate::convert::user::satori_user_from_tg_peer;
+use crate::satori::element::{AttrValue, Element, dump};
+use crate::satori::types::Message;
+use crate::telegram::is_audio;
 
 #[derive(PartialEq)]
 enum BreakpointMode {

@@ -1,21 +1,17 @@
 pub mod file_id;
 
-use std::{
-    io::{self, SeekFrom},
-    path::Path,
-};
+use std::io;
+use std::io::SeekFrom;
+use std::path::Path;
 
-use grammers_client::{
-    Client,
-    media::Uploaded,
-    message::{InputMessage, ReplyMarkup},
-    tl::{
-        enums::{Document, DocumentAttribute},
-        types::MessageMediaDocument,
-    },
-};
+use grammers_client::Client;
+use grammers_client::media::Uploaded;
+use grammers_client::message::{InputMessage, ReplyMarkup};
+use grammers_client::tl::enums::{Document, DocumentAttribute};
+use grammers_client::tl::types::MessageMediaDocument;
 use grammers_session::types::PeerId;
-use tokio::{fs, io::AsyncSeekExt};
+use tokio::fs;
+use tokio::io::AsyncSeekExt;
 
 pub fn peer_id_from_bot_api_id(id: i64) -> Option<PeerId> {
     match id {

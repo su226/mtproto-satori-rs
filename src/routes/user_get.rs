@@ -1,16 +1,16 @@
-use crate::{
-    convert::user::satori_user_from_tg_peer, error::MyError, self_info_cache::SelfInfoCache,
-    telegram::peer_id_from_bot_api_id,
-};
+use std::sync::Arc;
+
 use grammers_client::Client;
 use grammers_session::types::{PeerAuth, PeerRef};
-use ntex::{
-    http::{Response, StatusCode},
-    web::{self, types::State},
-};
+use ntex::http::{Response, StatusCode};
+use ntex::web;
 use serde::Deserialize;
-use std::sync::Arc;
 use tokio::sync::Mutex;
+
+use crate::convert::user::satori_user_from_tg_peer;
+use crate::error::MyError;
+use crate::self_info_cache::SelfInfoCache;
+use crate::telegram::peer_id_from_bot_api_id;
 
 #[derive(Deserialize)]
 struct UserGetParams {
@@ -19,8 +19,8 @@ struct UserGetParams {
 
 #[web::post("/v1/user.get")]
 async fn user_get(
-    client: State<Arc<Client>>,
-    self_info_cache: State<Arc<Mutex<SelfInfoCache>>>,
+    client: web::types::State<Arc<Client>>,
+    self_info_cache: web::types::State<Arc<Mutex<SelfInfoCache>>>,
     params: web::types::Json<UserGetParams>,
 ) -> Result<Response, MyError> {
     let peer = if let Ok(id) = params.0.user_id.parse::<i64>() {
