@@ -13,7 +13,7 @@ fn write_array(bytes: &mut Vec<u8>, data: &[u8]) {
     bytes.extend(data);
 }
 
-fn read_array<'a>(bytes: &'a [u8], start: usize) -> Option<(&'a [u8], usize)> {
+fn read_array(bytes: &[u8], start: usize) -> Option<(&[u8], usize)> {
     let mid = start + 4;
     if mid > bytes.len() {
         return None;

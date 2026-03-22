@@ -37,7 +37,7 @@ impl Element {
 
     pub fn get_text(&self) -> Option<&str> {
         if self.tag == "text" {
-            Some(self.get_attr_str("content").unwrap_or(&""))
+            Some(self.get_attr_str("content").unwrap_or(""))
         } else {
             None
         }
@@ -355,8 +355,8 @@ fn parse_tokens(tokens: &[TokenTreeLike]) -> Vec<Element> {
                             attrs.insert(key, AttrValue::Str(unescape(value.as_str())));
                         }
                         None => {
-                            if key.starts_with("no-") {
-                                attrs.insert(key[3..].to_string(), AttrValue::Bool(false));
+                            if let Some(key) = key.strip_prefix("no-") {
+                                attrs.insert(key.to_string(), AttrValue::Bool(false));
                             } else {
                                 attrs.insert(key, AttrValue::Bool(true));
                             }

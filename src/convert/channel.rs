@@ -41,22 +41,20 @@ pub async fn tg_peer_id_from_satori_channel_id(
             .ok_or_else(|| MyError::new(StatusCode::BAD_REQUEST, "Peer ID invalid.".to_string()))?
     } else {
         client
-            .resolve_username(&peer_id)
+            .resolve_username(peer_id)
             .await?
             .ok_or_else(|| {
                 MyError::new(StatusCode::BAD_REQUEST, "Username not found.".to_string())
             })?
             .id()
     };
-    let thread_id = if let Some(thread_id) = thread_id {
-        Some(thread_id.parse::<i32>().or_else(|_| {
-            Err(MyError::new(
-                StatusCode::BAD_REQUEST,
-                "Thread ID invalid.".to_string(),
-            ))
-        })?)
-    } else {
-        None
-    };
+    let thread_id =
+        if let Some(thread_id) = thread_id {
+            Some(thread_id.parse::<i32>().map_err(|_| {
+                MyError::new(StatusCode::BAD_REQUEST, "Thread ID invalid.".to_string())
+            })?)
+        } else {
+            None
+        };
     Ok((peer_id, thread_id))
 }

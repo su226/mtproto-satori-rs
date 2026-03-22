@@ -34,7 +34,7 @@ async fn message_create(
     params: web::types::Json<MessageCreateParams>,
 ) -> Result<Response, MyError> {
     let (peer_id, thread_id) =
-        tg_peer_id_from_satori_channel_id(&*client, &params.0.channel_id).await?;
+        tg_peer_id_from_satori_channel_id(&client, &params.0.channel_id).await?;
     debug!("Sending message to {}:{:?}", peer_id, thread_id);
     let peer = PeerRef {
         id: peer_id,
@@ -42,7 +42,7 @@ async fn message_create(
     };
     let elements = parse(&params.0.content)
         .ok_or_else(|| MyError::new(StatusCode::BAD_REQUEST, "Bad message.".to_string()))?;
-    let infos = fetch_infos(&*client, &elements).await?;
+    let infos = fetch_infos(&client, &elements).await?;
     let mut encoder = MessageEncoder::new(infos);
     encoder.render(&elements);
     encoder.flush();
@@ -58,7 +58,7 @@ async fn message_create(
             let message = add_reply_markup(message, markup);
             results.push(client.send_message(peer, message).await?);
         } else {
-            let mut medias = upload_medias(&*client, &pack.asset, &session_name.0).await?;
+            let mut medias = upload_medias(&client, &pack.asset, &session_name.0).await?;
             let buttons = pack.reply_markup();
             if let Some(buttons) = buttons {
                 medias[0] = take(&mut medias[0]).reply_to(reply.or(thread_id));

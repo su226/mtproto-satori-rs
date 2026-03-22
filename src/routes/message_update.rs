@@ -27,7 +27,7 @@ async fn message_update(
     params: web::types::Json<MessageUpdateParams>,
 ) -> Result<Response, MyError> {
     let (peer_id, thread_id) =
-        tg_peer_id_from_satori_channel_id(&*client, &params.0.channel_id).await?;
+        tg_peer_id_from_satori_channel_id(&client, &params.0.channel_id).await?;
     let message_id = params
         .0
         .message_id
@@ -43,7 +43,7 @@ async fn message_update(
     };
     let elements = parse(&params.0.content)
         .ok_or_else(|| MyError::new(StatusCode::BAD_REQUEST, "Bad message.".to_string()))?;
-    let infos = fetch_infos(&*client, &elements).await?;
+    let infos = fetch_infos(&client, &elements).await?;
     let mut encoder = MessageEncoder::new(infos);
     encoder.render(&elements);
     encoder.flush();
@@ -55,8 +55,7 @@ async fn message_update(
     let buttons = encoder
         .packs
         .into_iter()
-        .map(|x| x.rows)
-        .flatten()
+        .flat_map(|x| x.rows)
         .collect::<Vec<_>>();
     let message = InputMessage::new().html(content);
     let message = add_reply_markup(message, to_reply_markup(&buttons));

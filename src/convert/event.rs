@@ -38,7 +38,7 @@ pub fn satori_event_from_tg_message(login: &User, message: &Message) -> Event {
         message: Some(satori_msg),
         operator: None,
         role: None,
-        user: user,
+        user,
         referrer: None,
     }
 }
@@ -46,11 +46,10 @@ pub fn satori_event_from_tg_message(login: &User, message: &Message) -> Event {
 pub fn satori_event_from_tg_messages(login: &User, messages: &[&Message]) -> Event {
     let self_id = login.id().bot_api_dialog_id();
     let login = satori_login_from_tg_user(login);
-    let mut first_msg = satori_message_from_tg_message(self_id, &messages[0]);
+    let mut first_msg = satori_message_from_tg_message(self_id, messages[0]);
     let other_msgs = messages[1..]
-        .into_iter()
-        .map(|message| satori_elements_from_tg_message(self_id, message))
-        .flatten()
+        .iter()
+        .flat_map(|message| satori_elements_from_tg_message(self_id, message))
         .collect::<Vec<_>>();
     first_msg.content += &dump(other_msgs);
     let user = first_msg.user.clone();
@@ -67,7 +66,7 @@ pub fn satori_event_from_tg_messages(login: &User, messages: &[&Message]) -> Eve
         message: Some(first_msg),
         operator: None,
         role: None,
-        user: user,
+        user,
         referrer: None,
     }
 }

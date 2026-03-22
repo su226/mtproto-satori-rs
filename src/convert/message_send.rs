@@ -133,7 +133,7 @@ impl MessageEncoder {
                 return name;
             }
         }
-        return None;
+        None
     }
 
     fn get_user_id(&self, username: &str) -> Option<i64> {
@@ -530,7 +530,7 @@ async fn upload_media(
             .get(url)
             .send()
             .await
-            .map_err(|err| io::Error::other(err))?;
+            .map_err(io::Error::other)?;
         let name = if let Some(name) = name
             && !name.is_empty()
         {
@@ -540,7 +540,7 @@ async fn upload_media(
                 .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?
                 .path_segments()
                 .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?
-                .last()
+                .next_back()
                 .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?
                 .to_string()
         };
@@ -558,7 +558,7 @@ async fn upload_media(
                 file.write_all_buf(item.borrow_mut()).await?;
             }
             let path = file.file_path();
-            upload_file_custom_name(client, &path, Some(name)).await
+            upload_file_custom_name(client, path, Some(name)).await
         }
     }
 }
@@ -692,20 +692,18 @@ async fn upload_image(
             &*path.file_name().unwrap().to_string_lossy()
         };
         trace!("Passed name is {}", name);
-        let name = if extension_match(&name, ext) {
+        let name = if extension_match(name, ext) {
             name.to_string()
         } else {
             format!("{}.{}", name, ext)
         };
         trace!("Final name is {}", name);
-        let result = upload_file_custom_name(client, &path, Some(name)).await?;
+        let result = upload_file_custom_name(client, path, Some(name)).await?;
         drop(tempfile);
         Ok((result, mime.to_string()))
     } else {
         debug!("Uploading image {}", url);
-        let mut response = reqwest::get(url)
-            .await
-            .map_err(|err| io::Error::other(err))?;
+        let mut response = reqwest::get(url).await.map_err(io::Error::other)?;
         let (mut mime, mut ext) = response
             .headers()
             .get("Content-Type")
@@ -726,7 +724,7 @@ async fn upload_image(
                 .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?
                 .path_segments()
                 .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?
-                .last()
+                .next_back()
                 .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?
                 .to_string()
         };
@@ -768,7 +766,7 @@ async fn upload_image(
                 format!("{}.{}", name, ext)
             };
             trace!("Final name is {}", name);
-            let uploaded = upload_file_custom_name(client, &path, Some(name)).await?;
+            let uploaded = upload_file_custom_name(client, path, Some(name)).await?;
             Ok((uploaded, mime))
         }
     }

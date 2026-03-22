@@ -49,7 +49,7 @@ impl EventPublisher {
             tx: broadcast::channel(BROADCAST_CAPACITY).0,
             queue: Mutex::new(VecDeque::with_capacity(settings.recovery_events)),
             self_info_cache,
-            settings: settings,
+            settings,
             sn: Mutex::new(0),
             media_groups: Mutex::new(HashMap::new()),
         }
@@ -150,7 +150,7 @@ impl EventPublisher {
                         }
                     };
                     drop(self_info_cache);
-                    let event = satori_event_from_tg_message(&login, &message);
+                    let event = satori_event_from_tg_message(&login, message);
                     debug!("Received message: {:#?} => {:#?}", message, event);
                     self.send(event).await;
                 }
@@ -178,7 +178,7 @@ impl EventPublisher {
                         return;
                     }
                 };
-                let event = satori_event_from_tg_callback(&login, &callback, &message);
+                let event = satori_event_from_tg_callback(&login, callback, &message);
                 debug!("Received callback: {:#?} => {:#?}", callback, event);
                 self.send(event).await;
             }
@@ -209,12 +209,7 @@ impl EventPublisher {
     pub async fn get_events_from(&self, sn: u32) -> Vec<Event> {
         let mut to_send = Vec::new();
         let queue = self.queue.lock().await;
-        to_send.extend(
-            queue
-                .iter()
-                .filter(|event| event.sn > sn)
-                .map(|event| event.clone()),
-        );
+        to_send.extend(queue.iter().filter(|event| event.sn > sn).cloned());
         to_send
     }
 }
@@ -274,7 +269,7 @@ async fn events_service(
 
     let service = fn_service(async move |frame| -> Result<Option<ws::Message>, MyError> {
         let handle_op = async |bytes: &[u8]| -> Result<Option<ws::Message>, MyError> {
-            let op = match serde_json::from_slice::<WsOp>(&bytes) {
+            let op = match serde_json::from_slice::<WsOp>(bytes) {
                 Ok(op) => op,
                 Err(err) => {
                     warn!("Unable to deserialize payload: {:?}", err);

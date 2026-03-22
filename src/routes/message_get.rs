@@ -24,7 +24,7 @@ async fn message_get(
     self_info_cache: web::types::State<Arc<Mutex<SelfInfoCache>>>,
     params: web::types::Json<MessageGetParams>,
 ) -> Result<Response, MyError> {
-    let (peer_id, _) = tg_peer_id_from_satori_channel_id(&*client, &params.channel_id).await?;
+    let (peer_id, _) = tg_peer_id_from_satori_channel_id(&client, &params.channel_id).await?;
     let peer = PeerRef {
         id: peer_id,
         auth: PeerAuth::default(),

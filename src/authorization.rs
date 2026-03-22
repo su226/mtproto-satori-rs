@@ -66,7 +66,7 @@ where
         let is_proxy = path.starts_with("/v1/proxy/");
         if !is_events && !is_proxy && !settings.token.is_empty() {
             match headers.get(AUTHORIZATION) {
-                Some(value) if check_authorization(&value, &settings.token) => (),
+                Some(value) if check_authorization(value, &settings.token) => (),
                 Some(_) => return Ok(unauthorized(req, "Invalid authorization header.")),
                 None => return Ok(unauthorized(req, "No authorization header provided.")),
             }
