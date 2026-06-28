@@ -196,7 +196,10 @@ impl EventPublisher {
         client: Arc<Client>,
         updates: mpsc::UnboundedReceiver<UpdatesLike>,
     ) {
-        let mut updates = client.stream_updates(updates, Default::default()).await;
+        let mut updates = client
+            .stream_updates(updates, Default::default())
+            .await
+            .expect("Failed to stream updates");
         loop {
             let update = match updates.next().await {
                 Ok(update) => update,

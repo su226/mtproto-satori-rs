@@ -69,7 +69,7 @@ async fn main() -> io::Result<()> {
     };
 
     let session = Arc::new(
-        SqliteSession::open(format!("session_{}.db", session_name))
+        SqliteSession::open(&format!("session_{}.db", session_name))
             .await
             .expect("Failed to open session database"),
     );
@@ -81,7 +81,8 @@ async fn main() -> io::Result<()> {
                 ipv6: SocketAddrV6::from_str("[2001:67c:4e8:f002::e]:80").unwrap(),
                 auth_key: None,
             })
-            .await;
+            .await
+            .expect("Failed to enable test mode");
     }
     let params = ConnectionParams {
         proxy_url: if settings.proxy.is_empty() {

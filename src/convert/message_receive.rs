@@ -293,7 +293,9 @@ fn extract_reply_info(message: &grammers_client::message::Message) -> Option<Rep
         {
             Some(ReplyInfo {
                 msg_id: header.reply_to_msg_id?,
-                peer_id: PeerId::from(header.reply_to_peer_id?).bot_api_dialog_id(),
+                peer_id: PeerId::from(header.reply_to_peer_id?)
+                    .bot_api_dialog_id()
+                    .unwrap_or_default(),
                 quote: header.quote_text.map(|text| (text, header.quote_entities)),
             })
         }

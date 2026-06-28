@@ -5,10 +5,9 @@ use ntex::http::StatusCode;
 
 use crate::error::WebError;
 use crate::satori::types::{Channel, ChannelType};
-use crate::telegram::peer_id_from_bot_api_id;
 
 pub fn satori_channel_from_tg_peer(peer: &Peer, thread_id: Option<i32>) -> Channel {
-    let chat_id = peer.id().bot_api_dialog_id();
+    let chat_id = peer.id().bot_api_dialog_id().unwrap_or_default();
     Channel {
         id: match thread_id {
             Some(thread_id) => format!("{}:{}", chat_id, thread_id),
@@ -37,7 +36,7 @@ pub async fn tg_peer_id_from_satori_channel_id(
         (channel_id, None)
     };
     let peer_id = if let Ok(id) = peer_id.parse::<i64>() {
-        peer_id_from_bot_api_id(id)
+        PeerId::from_bot_api_dialog_id(id)
             .ok_or_else(|| WebError::new(StatusCode::BAD_REQUEST, "Peer ID invalid.".to_string()))?
     } else {
         client

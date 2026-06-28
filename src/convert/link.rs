@@ -17,7 +17,7 @@ pub fn satori_link_from_tg_user_photo(self_id: i64, user: &User) -> Option<Strin
         UserEnum::User(user) => user.access_hash.unwrap_or(0),
     };
     let file_id = FileId::PeerPhoto {
-        peer_id: user.id().bot_api_dialog_id(),
+        peer_id: user.id().bot_api_dialog_id().unwrap_or_default(),
         access_hash,
         photo_id: photo.photo_id,
     };
@@ -38,7 +38,7 @@ pub fn satori_link_from_tg_group_photo(self_id: i64, group: &Group) -> Option<St
         Chat::ChannelForbidden(forbidden) => forbidden.access_hash,
     };
     let file_id = FileId::PeerPhoto {
-        peer_id: group.id().bot_api_dialog_id(),
+        peer_id: group.id().bot_api_dialog_id().unwrap_or_default(),
         access_hash,
         photo_id: photo.photo_id,
     };
@@ -53,7 +53,7 @@ pub fn satori_link_from_tg_channel_photo(self_id: i64, channel: &Channel) -> Opt
     let photo = channel.photo()?;
     let access_hash = channel.raw.access_hash.unwrap_or(0);
     let file_id = FileId::PeerPhoto {
-        peer_id: channel.id().bot_api_dialog_id(),
+        peer_id: channel.id().bot_api_dialog_id().unwrap_or_default(),
         access_hash,
         photo_id: photo.photo_id,
     };

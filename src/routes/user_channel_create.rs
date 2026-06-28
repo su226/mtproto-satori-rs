@@ -29,6 +29,7 @@ async fn user_channel_create(
             .ok_or_else(|| WebError::new(StatusCode::NOT_FOUND, "User not found.".to_string()))?
             .id()
             .bot_api_dialog_id()
+            .unwrap_or_default()
     };
     Ok(web::HttpResponse::Ok().json(&Channel {
         id: peer_id.to_string(),

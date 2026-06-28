@@ -27,7 +27,12 @@ async fn internal(
     self_info_manager: web::types::State<Arc<Mutex<SelfInfoCache>>>,
     path: web::types::Path<(i64, String)>,
 ) -> Result<Response, WebError> {
-    let self_id = self_info_manager.lock().await.get_id().bot_api_dialog_id();
+    let self_id = self_info_manager
+        .lock()
+        .await
+        .get_id()
+        .bot_api_dialog_id()
+        .unwrap_or_default();
     let (user_id, path) = path.into_inner();
     if user_id != self_id {
         return Ok(web::HttpResponse::NotFound().body("Invalid user ID."));

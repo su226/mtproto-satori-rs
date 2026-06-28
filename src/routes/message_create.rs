@@ -82,7 +82,12 @@ async fn message_create(
             }
         }
     }
-    let self_id = self_info_cache.lock().await.get_id().bot_api_dialog_id();
+    let self_id = self_info_cache
+        .lock()
+        .await
+        .get_id()
+        .bot_api_dialog_id()
+        .unwrap_or_default();
     Ok(Response::Ok().json(
         &results
             .into_iter()

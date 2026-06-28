@@ -42,6 +42,11 @@ async fn message_get(
         .ok_or_else(message_not_found)?
         .as_ref()
         .ok_or_else(message_not_found)?;
-    let self_id = self_info_cache.lock().await.get_id().bot_api_dialog_id();
+    let self_id = self_info_cache
+        .lock()
+        .await
+        .get_id()
+        .bot_api_dialog_id()
+        .unwrap_or_default();
     Ok(web::HttpResponse::Ok().json(&satori_message_from_tg_message(self_id, message)))
 }

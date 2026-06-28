@@ -80,7 +80,12 @@ where
                 Some(_) => return Ok(unauthorized(req, "Invalid platform header.")),
                 None => return Ok(unauthorized(req, "No platform header provided.")),
             }
-            let self_id = self_info_manager.lock().await.get_id().bot_api_dialog_id();
+            let self_id = self_info_manager
+                .lock()
+                .await
+                .get_id()
+                .bot_api_dialog_id()
+                .unwrap_or_default();
             match headers
                 .get("Satori-User-ID")
                 .or_else(|| headers.get("X-Self-ID"))

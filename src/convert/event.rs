@@ -21,7 +21,7 @@ fn timestamp() -> f64 {
 }
 
 pub fn satori_event_from_tg_message(login: &User, message: &Message) -> Event {
-    let self_id = login.id().bot_api_dialog_id();
+    let self_id = login.id().bot_api_dialog_id().unwrap_or_default();
     let login = satori_login_from_tg_user(login);
     let satori_msg = satori_message_from_tg_message(self_id, message);
     let user = satori_msg.user.clone();
@@ -44,7 +44,7 @@ pub fn satori_event_from_tg_message(login: &User, message: &Message) -> Event {
 }
 
 pub fn satori_event_from_tg_messages(login: &User, messages: &[&Message]) -> Event {
-    let self_id = login.id().bot_api_dialog_id();
+    let self_id = login.id().bot_api_dialog_id().unwrap_or_default();
     let login = satori_login_from_tg_user(login);
     let mut first_msg = satori_message_from_tg_message(self_id, messages[0]);
     let other_msgs = messages[1..]
@@ -76,7 +76,7 @@ pub fn satori_event_from_tg_callback(
     callback: &CallbackQuery,
     message: &Message,
 ) -> Event {
-    let self_id = login.id().bot_api_dialog_id();
+    let self_id = login.id().bot_api_dialog_id().unwrap_or_default();
     let login = satori_login_from_tg_user(login);
     let message = satori_message_from_tg_message(self_id, message);
     let user = callback

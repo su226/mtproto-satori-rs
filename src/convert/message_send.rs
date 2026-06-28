@@ -23,7 +23,7 @@ use grammers_client::tl::functions::messages::{GetChats, GetCustomEmojiDocuments
 use grammers_client::tl::functions::users::GetUsers;
 use grammers_client::tl::types::{Document, InputChannel, InputUser};
 use grammers_client::{Client, InvocationError};
-use grammers_session::types::PeerKind;
+use grammers_session::types::{PeerId, PeerKind};
 use image::{ImageError, ImageFormat, ImageReader, ImageResult};
 use infer::Infer;
 use log::{debug, trace};
@@ -38,7 +38,7 @@ use url::Url;
 
 use crate::error::WebError;
 use crate::satori::element::{Element, escape};
-use crate::telegram::{peer_id_from_bot_api_id, upload_file_custom_name};
+use crate::telegram::upload_file_custom_name;
 
 pub struct MessagePack {
     pub content: String,
@@ -140,7 +140,7 @@ impl MessageEncoder {
         self.info
             .users_by_name
             .get(username)
-            .map(|user| user.id().bot_api_dialog_id())
+            .map(|user| user.id().bot_api_dialog_id().unwrap_or_default())
     }
 
     fn visit(&mut self, element: &Element) {
@@ -386,13 +386,12 @@ pub async fn fetch_infos(
     let mut peer_ids_chat = Vec::new();
     let mut peer_ids_channel = Vec::new();
     for id in user_ids {
-        let peer_id = peer_id_from_bot_api_id(id);
+        let peer_id = PeerId::from_bot_api_dialog_id(id);
         if let Some(peer_id) = peer_id {
             match peer_id.kind() {
                 PeerKind::User => peer_ids_user.push(peer_id),
                 PeerKind::Chat => peer_ids_chat.push(peer_id),
                 PeerKind::Channel => peer_ids_channel.push(peer_id),
-                PeerKind::UserSelf => unreachable!(),
             }
         }
     }
@@ -404,7 +403,7 @@ pub async fn fetch_infos(
                     .into_iter()
                     .map(|x| {
                         InputUserEnum::User(InputUser {
-                            user_id: x.bare_id(),
+                            user_id: x.bare_id().unwrap_or_default(),
                             access_hash: 0,
                         })
                     })
@@ -418,7 +417,10 @@ pub async fn fetch_infos(
     if !peer_ids_chat.is_empty() {
         let chats = client
             .invoke(&GetChats {
-                id: peer_ids_chat.into_iter().map(|x| x.bare_id()).collect(),
+                id: peer_ids_chat
+                    .into_iter()
+                    .map(|x| x.bare_id().unwrap_or_default())
+                    .collect(),
             })
             .await?;
         for chat in chats.chats() {
@@ -432,7 +434,7 @@ pub async fn fetch_infos(
                     .into_iter()
                     .map(|x| {
                         InputChannelEnum::Channel(InputChannel {
-                            channel_id: x.bare_id(),
+                            channel_id: x.bare_id().unwrap_or_default(),
                             access_hash: 0,
                         })
                     })
@@ -478,6 +480,7 @@ fn tempfile_err_to_io_err(err: async_tempfile::Error) -> io::Error {
         async_tempfile::Error::InvalidDirectory | async_tempfile::Error::InvalidFile => {
             io::Error::new(io::ErrorKind::NotFound, err)
         }
+        async_tempfile::Error::InvalidAffix => io::Error::new(io::ErrorKind::InvalidFilename, err),
         async_tempfile::Error::Io(err) => err,
     }
 }

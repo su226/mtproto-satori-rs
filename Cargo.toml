@@ -5,25 +5,25 @@ edition = "2024"
 
 [dependencies]
 async-stream = "0.3.6"
-async-tempfile = "0.7.0"
+async-tempfile = "0.8.0"
 base64 = "0.22.1"
-config = "0.15.19"
-constant_time_eq = "0.4.2"
-env_logger = "0.11.9"
+config = "0.15.25"
+constant_time_eq = "0.5.0"
+env_logger = "0.11.11"
 futures-util = "0.3.32"
-grammers-client = { version = "0.9.0", features = ["html"] }
-grammers-mtsender = { version = "0.9.0", features = ["proxy"] }
-grammers-session = { version = "0.9.0", features = ["sqlite-storage"] }
+grammers-client = { version = "0.9.0", features = ["html"], git = "https://codeberg.org/Lonami/grammers.git" }
+grammers-mtsender = { version = "0.9.0", features = ["proxy"], git = "https://codeberg.org/Lonami/grammers.git" }
+grammers-session = { version = "0.9.0", features = ["sqlite-storage"], git = "https://codeberg.org/Lonami/grammers.git" }
 image = "0.25.10"
 infer = "0.19.0"
-log = "0.4.29"
+log = "0.4.33"
 mime_guess = "2.0.5"
-ntex = { version = "3.5.1", features = ["tokio"] }
-regex = "1.12.3"
-reqwest = { version = "0.13.2", features = ["stream"] }
+ntex = { version = "3.10.0", features = ["tokio"] }
+regex = "1.12.4"
+reqwest = { version = "0.13.4", features = ["stream"] }
 serde = "1.0.228"
-serde_json = "1.0.149"
+serde_json = "1.0.150"
 serde_repr = "0.1.20"
-tokio = "1.49.0"
+tokio = "1.52.3"
 tokio-util = "0.7.18"
 url = "2.5.8"

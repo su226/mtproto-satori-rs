@@ -8,7 +8,7 @@ pub fn satori_login_from_tg_user(user: &User) -> Login {
         sn: 0,
         platform: Some("telegram".into()),
         user: Some(satori_user_from_tg_user(
-            user.id().bot_api_dialog_id(),
+            user.id().bot_api_dialog_id().unwrap_or_default(),
             user,
         )),
         status: LoginStatus::Online,

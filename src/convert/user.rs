@@ -5,7 +5,11 @@ use crate::satori::types::User;
 
 pub fn satori_user_from_tg_user(self_id: i64, user: &grammers_client::peer::User) -> User {
     User {
-        id: user.id().bot_api_dialog_id().to_string(),
+        id: user
+            .id()
+            .bot_api_dialog_id()
+            .unwrap_or_default()
+            .to_string(),
         name: user.username().map(|s| s.to_string()),
         nick: Some(user.full_name()),
         avatar: satori_link_from_tg_user_photo(self_id, user),
@@ -16,7 +20,11 @@ pub fn satori_user_from_tg_user(self_id: i64, user: &grammers_client::peer::User
 pub fn satori_user_from_tg_peer(self_id: i64, peer: &Peer) -> User {
     // TODO only channels/supergroups can act like users, not (regular) groups
     User {
-        id: peer.id().bot_api_dialog_id().to_string(),
+        id: peer
+            .id()
+            .bot_api_dialog_id()
+            .unwrap_or_default()
+            .to_string(),
         name: peer.username().map(|s| s.to_string()),
         nick: match peer {
             Peer::User(user) => Some(user.full_name()),
