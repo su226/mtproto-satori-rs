@@ -50,15 +50,16 @@ async fn message_create(
     for pack in encoder.packs {
         let reply = parse_reply(pack.reply.as_deref())?;
         trace!("Reply to {:?}", reply);
-        if pack.asset.is_empty() {
+        if pack.assets.is_empty() {
             let markup = pack.reply_markup();
             let message = InputMessage::new()
-                .html(pack.content)
+                .text(pack.content)
+                .fmt_entities(pack.entities)
                 .reply_to(reply.or(thread_id));
             let message = add_reply_markup(message, markup);
             results.push(client.send_message(peer, message).await?);
         } else {
-            let mut medias = upload_medias(&client, &pack.asset, &session_name.0).await?;
+            let mut medias = upload_medias(&client, &pack.assets, &session_name.0).await?;
             let buttons = pack.reply_markup();
             if let Some(buttons) = buttons {
                 medias[0] = take(&mut medias[0]).reply_to(reply.or(thread_id));
@@ -68,7 +69,8 @@ async fn message_create(
                         .send_message(
                             peer,
                             InputMessage::new()
-                                .html(pack.content)
+                                .text(pack.content)
+                                .fmt_entities(pack.entities)
                                 .reply_to(Some(results[0].id()))
                                 .reply_markup(buttons),
                         )
@@ -76,7 +78,8 @@ async fn message_create(
                 );
             } else {
                 medias[0] = take(&mut medias[0])
-                    .html(pack.content)
+                    .caption(pack.content)
+                    .fmt_entities(pack.entities)
                     .reply_to(reply.or(thread_id));
                 results.extend(client.send_album(peer, medias).await?.into_iter().flatten());
             }

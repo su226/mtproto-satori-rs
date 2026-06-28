@@ -9,9 +9,16 @@ use ntex::web;
 use serde::Deserialize;
 
 use crate::convert::channel::tg_peer_id_from_satori_channel_id;
-use crate::convert::message_send::{MessageEncoder, fetch_infos, to_reply_markup};
+use crate::convert::message_send::{
+    MessageEncoder,
+    MessagePack,
+    attach_media,
+    fetch_infos,
+    to_reply_markup,
+};
 use crate::error::WebError;
 use crate::satori::element::parse;
+use crate::session::SessionName;
 use crate::telegram::add_reply_markup;
 
 #[derive(Deserialize)]
@@ -24,6 +31,7 @@ struct MessageUpdateParams {
 #[web::post("/v1/message.update")]
 async fn message_update(
     client: web::types::State<Arc<Client>>,
+    session_name: web::types::State<Arc<SessionName>>,
     params: web::types::Json<MessageUpdateParams>,
 ) -> Result<Response, WebError> {
     let (peer_id, thread_id) =
@@ -47,18 +55,14 @@ async fn message_update(
     let mut encoder = MessageEncoder::new(infos);
     encoder.render(&elements);
     encoder.flush();
-    let content = encoder
-        .packs
-        .iter()
-        .map(|x| x.content.as_str())
-        .collect::<String>();
-    let buttons = encoder
-        .packs
-        .into_iter()
-        .flat_map(|x| x.rows)
-        .collect::<Vec<_>>();
-    let message = InputMessage::new().html(content);
-    let message = add_reply_markup(message, to_reply_markup(&buttons));
+    let pack = MessagePack::merge(encoder.packs);
+    let mut message = InputMessage::new()
+        .text(pack.content)
+        .fmt_entities(pack.entities);
+    if let Some(media) = pack.assets.first() {
+        message = attach_media(message, &client, media, &session_name.0).await?;
+    }
+    let message = add_reply_markup(message, to_reply_markup(&pack.buttons));
     client.edit_message(peer, message_id, message).await?;
     Ok(Response::Ok().finish())
 }

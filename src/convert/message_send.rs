@@ -10,18 +10,34 @@ use async_tempfile::TempFile;
 use base64::prelude::*;
 use futures_util::TryStreamExt;
 use grammers_client::media::{InputMedia, Uploaded};
-use grammers_client::message::{Button, ReplyMarkup};
+use grammers_client::message::{Button, InputMessage, ReplyMarkup};
 use grammers_client::peer::{Channel, Group, Peer, User};
 use grammers_client::tl::enums::{
     Document as DocumentEnum,
     DocumentAttribute,
     InputChannel as InputChannelEnum,
     InputUser as InputUserEnum,
+    MessageEntity,
 };
 use grammers_client::tl::functions::channels::GetChannels;
 use grammers_client::tl::functions::messages::{GetChats, GetCustomEmojiDocuments};
 use grammers_client::tl::functions::users::GetUsers;
-use grammers_client::tl::types::{Document, InputChannel, InputUser};
+use grammers_client::tl::types::{
+    Document,
+    InputChannel,
+    InputUser,
+    MessageEntityBlockquote,
+    MessageEntityBold,
+    MessageEntityCode,
+    MessageEntityCustomEmoji,
+    MessageEntityItalic,
+    MessageEntityMentionName,
+    MessageEntityPre,
+    MessageEntitySpoiler,
+    MessageEntityStrike,
+    MessageEntityTextUrl,
+    MessageEntityUnderline,
+};
 use grammers_client::{Client, InvocationError};
 use grammers_session::types::{PeerId, PeerKind};
 use image::{ImageError, ImageFormat, ImageReader, ImageResult};
@@ -37,31 +53,73 @@ use tokio_util::io::StreamReader;
 use url::Url;
 
 use crate::error::WebError;
-use crate::satori::element::{Element, escape};
+use crate::satori::element::Element;
 use crate::telegram::upload_file_custom_name;
 
 pub struct MessagePack {
     pub content: String,
-    pub asset: Vec<Element>,
+    pub utf16_length: i32,
+    pub entities: Vec<MessageEntity>,
+    pub assets: Vec<Element>,
     pub reply: Option<String>,
-    pub rows: Vec<Vec<Button>>,
+    pub buttons: Vec<Vec<Button>>,
 }
 
 impl MessagePack {
     pub fn new() -> Self {
         Self {
             content: "".to_string(),
-            asset: Vec::new(),
+            utf16_length: 0,
+            entities: Vec::new(),
+            assets: Vec::new(),
             reply: None,
-            rows: Vec::new(),
+            buttons: Vec::new(),
+        }
+    }
+
+    pub fn push_text(&mut self, text: &str) {
+        self.content += text;
+        self.utf16_length += text.encode_utf16().count() as i32;
+    }
+
+    pub fn merge(packs: Vec<MessagePack>) -> Self {
+        let mut content = String::new();
+        let mut utf16_length = 0;
+        let mut entities = Vec::new();
+        let mut assets = Vec::new();
+        let mut reply = None;
+        let mut buttons = Vec::new();
+        for mut pack in packs.into_iter() {
+            content += &pack.content;
+            for mut entity in pack.entities.into_iter() {
+                let offset = entity.offset() + utf16_length;
+                set_offset(&mut entity, offset);
+                entities.push(entity);
+            }
+            utf16_length += pack.utf16_length;
+            assets.append(&mut pack.assets);
+            if reply.is_none()
+                && let Some(id) = pack.reply
+            {
+                reply = Some(id);
+            }
+            buttons.append(&mut pack.buttons);
+        }
+        Self {
+            content,
+            utf16_length,
+            entities,
+            assets,
+            reply,
+            buttons,
         }
     }
 
     pub fn reply_markup(&self) -> Option<ReplyMarkup> {
-        if self.rows.is_empty() {
+        if self.buttons.is_empty() {
             None
         } else {
-            Some(ReplyMarkup::from_buttons(self.rows.as_slice()))
+            Some(ReplyMarkup::from_buttons(self.buttons.as_slice()))
         }
     }
 }
@@ -87,9 +145,70 @@ pub struct EncoderInfo {
     users_by_id: HashMap<i64, Peer>,
 }
 
+fn set_offset(entity: &mut MessageEntity, offset: i32) {
+    match entity {
+        MessageEntity::Unknown(i) => i.offset = offset,
+        MessageEntity::Mention(i) => i.offset = offset,
+        MessageEntity::Hashtag(i) => i.offset = offset,
+        MessageEntity::BotCommand(i) => i.offset = offset,
+        MessageEntity::Url(i) => i.offset = offset,
+        MessageEntity::Email(i) => i.offset = offset,
+        MessageEntity::Bold(i) => i.offset = offset,
+        MessageEntity::Italic(i) => i.offset = offset,
+        MessageEntity::Code(i) => i.offset = offset,
+        MessageEntity::Pre(i) => i.offset = offset,
+        MessageEntity::TextUrl(i) => i.offset = offset,
+        MessageEntity::MentionName(i) => i.offset = offset,
+        MessageEntity::InputMessageEntityMentionName(i) => i.offset = offset,
+        MessageEntity::Phone(i) => i.offset = offset,
+        MessageEntity::Cashtag(i) => i.offset = offset,
+        MessageEntity::Underline(i) => i.offset = offset,
+        MessageEntity::Strike(i) => i.offset = offset,
+        MessageEntity::BankCard(i) => i.offset = offset,
+        MessageEntity::Spoiler(i) => i.offset = offset,
+        MessageEntity::CustomEmoji(i) => i.offset = offset,
+        MessageEntity::Blockquote(i) => i.offset = offset,
+        MessageEntity::FormattedDate(i) => i.offset = offset,
+        MessageEntity::DiffInsert(i) => i.offset = offset,
+        MessageEntity::DiffReplace(i) => i.offset = offset,
+        MessageEntity::DiffDelete(i) => i.offset = offset,
+    }
+}
+
+fn set_length(entity: &mut MessageEntity, length: i32) {
+    match entity {
+        MessageEntity::Unknown(i) => i.length = length,
+        MessageEntity::Mention(i) => i.length = length,
+        MessageEntity::Hashtag(i) => i.length = length,
+        MessageEntity::BotCommand(i) => i.length = length,
+        MessageEntity::Url(i) => i.length = length,
+        MessageEntity::Email(i) => i.length = length,
+        MessageEntity::Bold(i) => i.length = length,
+        MessageEntity::Italic(i) => i.length = length,
+        MessageEntity::Code(i) => i.length = length,
+        MessageEntity::Pre(i) => i.length = length,
+        MessageEntity::TextUrl(i) => i.length = length,
+        MessageEntity::MentionName(i) => i.length = length,
+        MessageEntity::InputMessageEntityMentionName(i) => i.length = length,
+        MessageEntity::Phone(i) => i.length = length,
+        MessageEntity::Cashtag(i) => i.length = length,
+        MessageEntity::Underline(i) => i.length = length,
+        MessageEntity::Strike(i) => i.length = length,
+        MessageEntity::BankCard(i) => i.length = length,
+        MessageEntity::Spoiler(i) => i.length = length,
+        MessageEntity::CustomEmoji(i) => i.length = length,
+        MessageEntity::Blockquote(i) => i.length = length,
+        MessageEntity::FormattedDate(i) => i.length = length,
+        MessageEntity::DiffInsert(i) => i.length = length,
+        MessageEntity::DiffReplace(i) => i.length = length,
+        MessageEntity::DiffDelete(i) => i.length = length,
+    }
+}
+
 pub struct MessageEncoder {
     pub packs: Vec<MessagePack>,
     current: MessagePack,
+    entities_stack: Vec<MessageEntity>,
     mode: MessageEncoderMode,
     info: EncoderInfo,
 }
@@ -99,6 +218,7 @@ impl MessageEncoder {
         Self {
             packs: Vec::new(),
             current: MessagePack::new(),
+            entities_stack: Vec::new(),
             mode: MessageEncoderMode::Default,
             info,
         }
@@ -143,56 +263,117 @@ impl MessageEncoder {
             .map(|user| user.id().bot_api_dialog_id().unwrap_or_default())
     }
 
+    fn push_entities_stack(&mut self, mut entity: MessageEntity) {
+        set_offset(&mut entity, self.current.utf16_length);
+        self.entities_stack.push(entity);
+    }
+
+    fn pop_entities_stack(&mut self) {
+        let mut entity = self
+            .entities_stack
+            .pop()
+            .expect("MessageEntity stack underflow");
+        let length = self.current.utf16_length - entity.offset();
+        set_length(&mut entity, length);
+        self.current.entities.push(entity);
+    }
+
     fn visit(&mut self, element: &Element) {
         match element.tag.as_str() {
-            "text" => self.current.content += &escape(element.get_text().unwrap(), false),
-            "br" => self.current.content += "\n",
+            "text" => self
+                .current
+                .push_text(&element.get_text().unwrap_or_default()),
+            "br" => self.current.push_text("\n"),
             "p" => {
-                if !self.current.content.ends_with("\n") {
-                    self.current.content += "\n";
+                if !self.current.content.is_empty() && !self.current.content.ends_with("\n") {
+                    self.current.push_text("\n");
                 }
                 self.render(&element.children);
-                if !self.current.content.ends_with("\n") {
-                    self.current.content += "\n";
+                if !self.current.content.is_empty() && !self.current.content.ends_with("\n") {
+                    self.current.push_text("\n");
                 }
             }
             "a" => {
                 if let Some(href) = element.get_attr_str("href") {
-                    self.current.content += &format!("<a href=\"{}\">", escape(href, true));
-                } else {
-                    self.current.content += "<a>";
-                }
-                self.render(&element.children);
-                self.current.content += "</a>";
-            }
-            tag @ ("b" | "strong" | "i" | "em" | "u" | "ins" | "s" | "del") => {
-                self.current.content += &format!("<{}>", tag);
-                self.render(&element.children);
-                self.current.content += &format!("</{}>", tag);
-            }
-            "spl" => {
-                self.current.content += "<tg-spoiler>";
-                self.render(&element.children);
-                self.current.content += "</tg-spoiler>";
-            }
-            "code" => {
-                self.current.content += "<code>";
-                if let Some(content) = element.get_attr_str("content") {
-                    self.current.content += &escape(content, false);
+                    self.push_entities_stack(MessageEntity::TextUrl(MessageEntityTextUrl {
+                        offset: 0,
+                        length: 0,
+                        url: href.to_string(),
+                    }));
+                    self.render(&element.children);
+                    self.pop_entities_stack();
                 } else {
                     self.render(&element.children);
                 }
-                self.current.content += "</code>"
+            }
+            "b" | "strong" => {
+                self.push_entities_stack(MessageEntity::Bold(MessageEntityBold {
+                    offset: 0,
+                    length: 0,
+                }));
+                self.render(&element.children);
+                self.pop_entities_stack();
+            }
+            "i" | "em" => {
+                self.push_entities_stack(MessageEntity::Italic(MessageEntityItalic {
+                    offset: 0,
+                    length: 0,
+                }));
+                self.render(&element.children);
+                self.pop_entities_stack();
+            }
+            "u" | "ins" => {
+                self.push_entities_stack(MessageEntity::Underline(MessageEntityUnderline {
+                    offset: 0,
+                    length: 0,
+                }));
+                self.render(&element.children);
+                self.pop_entities_stack();
+            }
+            "s" | "del" => {
+                self.push_entities_stack(MessageEntity::Strike(MessageEntityStrike {
+                    offset: 0,
+                    length: 0,
+                }));
+                self.render(&element.children);
+                self.pop_entities_stack();
+            }
+            "spl" => {
+                self.push_entities_stack(MessageEntity::Spoiler(MessageEntitySpoiler {
+                    offset: 0,
+                    length: 0,
+                }));
+                self.render(&element.children);
+                self.pop_entities_stack();
+            }
+            "code" => {
+                self.push_entities_stack(MessageEntity::Code(MessageEntityCode {
+                    offset: 0,
+                    length: 0,
+                }));
+                if let Some(content) = element.get_attr_str("content") {
+                    self.current.push_text(content);
+                } else {
+                    self.render(&element.children);
+                }
+                self.pop_entities_stack();
             }
             "pre" | "code-block" => {
                 if let Some(lang) = element.get_attr_str("lang") {
-                    self.current.content +=
-                        &format!("<pre><code class=\"language-{}\">", escape(lang, true));
+                    self.push_entities_stack(MessageEntity::Pre(MessageEntityPre {
+                        offset: 0,
+                        length: 0,
+                        language: lang.into(),
+                    }));
                 } else {
-                    self.current.content += "<pre><code>";
+                    self.push_entities_stack(MessageEntity::Pre(MessageEntityPre {
+                        offset: 0,
+                        length: 0,
+                        language: "".into(),
+                    }));
                 }
                 self.render(&element.children);
-                self.current.content += "</code></pre>";
+                self.pop_entities_stack();
             }
             "at" => {
                 if let Some(id) = element.get_attr_str("id") {
@@ -202,31 +383,38 @@ impl MessageEncoder {
                             .map(|s| s.to_string())
                             .or_else(|| self.get_user_name(id))
                             .unwrap_or_else(|| "User".to_string());
-                        self.current.content += &format!(
-                            "<a href=\"tg://user?id={}\">{}</a>",
-                            id,
-                            escape(&display, false),
-                        );
-                        self.current.content += &format!(
-                            "<a href=\"tg://user?id={}\">{}</a>",
-                            id,
-                            escape(&display, false),
-                        );
+                        self.push_entities_stack(MessageEntity::MentionName(
+                            MessageEntityMentionName {
+                                offset: 0,
+                                length: 0,
+                                user_id: id,
+                            },
+                        ));
+                        self.current.push_text(&display);
+                        self.pop_entities_stack();
                     } else {
                         let username = id.strip_prefix("@").unwrap_or(id);
-                        let id = self
-                            .get_user_id(username)
-                            .map(|id| id.to_string())
-                            .unwrap_or_else(|| escape(&format!("@{}", username), true));
-                        let display = element
-                            .get_attr_str("name")
-                            .map(|name| name.to_string())
-                            .unwrap_or_else(|| format!("@{}", username));
-                        self.current.content += &format!(
-                            "<a href=\"tg://user?id={}\">{}</a>",
-                            id,
-                            escape(&display, false),
-                        );
+                        if let Some(id) = self.get_user_id(username) {
+                            let display = element
+                                .get_attr_str("name")
+                                .map(|name| name.to_string())
+                                .unwrap_or_else(|| format!("@{}", username));
+                            self.push_entities_stack(MessageEntity::MentionName(
+                                MessageEntityMentionName {
+                                    offset: 0,
+                                    length: 0,
+                                    user_id: id,
+                                },
+                            ));
+                            self.current.push_text(&display);
+                            self.pop_entities_stack();
+                        } else if !self.current.content.is_empty()
+                            && self.current.content.ends_with(char::is_whitespace)
+                        {
+                            self.current.push_text(&format!(" @{} ", username));
+                        } else {
+                            self.current.push_text(&format!("@{} ", username));
+                        }
                     }
                 }
             }
@@ -234,44 +422,54 @@ impl MessageEncoder {
                 if let Some(id) = element.get_attr_str("id")
                     && let Ok(id) = id.parse::<i64>()
                 {
-                    let name = element
+                    let name = &element
                         .get_attr_str("name")
                         .or_else(|| self.get_emoji_name(id))
-                        .unwrap_or("😀");
-                    self.current.content += &format!(
-                        "<tg-emoji emoji-id=\"{}\">{}</tg-emoji>",
-                        id,
-                        escape(name, false),
-                    );
+                        .unwrap_or("😀")
+                        .to_string();
+                    self.push_entities_stack(MessageEntity::CustomEmoji(
+                        MessageEntityCustomEmoji {
+                            offset: 0,
+                            length: 0,
+                            document_id: id,
+                        },
+                    ));
+                    self.current.push_text(name);
+                    self.pop_entities_stack();
                 }
             }
             "img" | "image" | "audio" | "video" | "file" => {
-                self.current.asset.push(element.clone())
+                self.current.assets.push(element.clone());
             }
             "figure" => {
                 self.flush();
                 self.mode = MessageEncoderMode::Figure;
                 self.render(&element.children);
                 self.flush();
+                self.mode = MessageEncoderMode::Default;
             }
             "quote" => {
                 if let Some(id) = element.get_attr_str("id") {
                     self.flush();
                     self.current.reply = Some(id.to_string());
                 } else {
-                    self.current.content += "<blockquote>";
+                    self.push_entities_stack(MessageEntity::Blockquote(MessageEntityBlockquote {
+                        offset: 0,
+                        length: 0,
+                        collapsed: false,
+                    }));
                     self.render(&element.children);
-                    self.current.content += "</blockquote>";
+                    self.pop_entities_stack();
                 }
             }
             "button" => {
-                if self.current.rows.is_empty() {
-                    self.current.rows.push(Vec::new());
+                if self.current.buttons.is_empty() {
+                    self.current.buttons.push(Vec::new());
                 }
-                let mut row = self.current.rows.last_mut().unwrap();
+                let mut row = self.current.buttons.last_mut().unwrap();
                 if row.len() > 5 {
-                    self.current.rows.push(Vec::new());
-                    row = self.current.rows.last_mut().unwrap();
+                    self.current.buttons.push(Vec::new());
+                    row = self.current.buttons.last_mut().unwrap();
                 }
                 let label = element.strip();
                 row.push(match element.get_attr_str("type") {
@@ -284,14 +482,14 @@ impl MessageEncoder {
                 });
             }
             "button-group" => {
-                self.current.rows.push(Vec::new());
+                self.current.buttons.push(Vec::new());
                 self.render(&element.children);
-                self.current.rows.push(Vec::new());
+                self.current.buttons.push(Vec::new());
             }
             "message" => {
                 if self.mode == MessageEncoderMode::Figure {
                     self.render(&element.children);
-                    self.current.content += "\n";
+                    self.current.push_text("\n");
                 } else {
                     self.flush();
                     self.render(&element.children);
@@ -309,14 +507,24 @@ impl MessageEncoder {
     }
 
     pub fn flush(&mut self) {
-        if self.current.content.is_empty() && self.current.asset.is_empty() {
+        if self.current.content.is_empty() && self.current.assets.is_empty() {
             return;
         }
+        let current_length = self.current.utf16_length;
         let mut current = replace(&mut self.current, MessagePack::new());
-        if let Some(last) = self.current.rows.last()
+        for entity in self.entities_stack.iter() {
+            let mut entity = entity.clone();
+            let length = current_length - entity.offset();
+            set_length(&mut entity, length);
+            current.entities.push(entity);
+        }
+        for entity in self.entities_stack.iter_mut() {
+            set_offset(entity, 0);
+        }
+        if let Some(last) = self.current.buttons.last()
             && last.is_empty()
         {
-            current.rows.pop();
+            current.buttons.pop();
         }
         self.packs.push(current);
     }
@@ -485,7 +693,7 @@ fn tempfile_err_to_io_err(err: async_tempfile::Error) -> io::Error {
     }
 }
 
-async fn upload_media(
+async fn upload_others(
     client: &Client,
     element: &Element,
     session_name: &str,
@@ -792,19 +1000,50 @@ pub async fn upload_medias(
                 }
             }
             "audio" => {
-                let media = upload_media(client, element, session_name).await?;
+                let media = upload_others(client, element, session_name).await?;
                 InputMedia::new().document(media)
             }
             "video" => {
-                let media = upload_media(client, element, session_name).await?;
+                let media = upload_others(client, element, session_name).await?;
                 InputMedia::new().document(media)
             }
             "file" => {
-                let media = upload_media(client, element, session_name).await?;
+                let media = upload_others(client, element, session_name).await?;
                 InputMedia::new().file(media)
             }
-            _ => unreachable!(),
+            _ => return Err(io::ErrorKind::InvalidInput.into()),
         });
     }
     Ok(medias)
+}
+
+pub async fn attach_media(
+    message: InputMessage,
+    client: &Client,
+    element: &Element,
+    session_name: &str,
+) -> Result<InputMessage, io::Error> {
+    match element.tag.as_str() {
+        "img" | "image" => {
+            let (media, mime) = upload_image(client, element, session_name).await?;
+            if mime == "image/gif" {
+                Ok(message.file(media))
+            } else {
+                Ok(message.photo(media))
+            }
+        }
+        "audio" => {
+            let media = upload_others(client, element, session_name).await?;
+            Ok(message.document(media))
+        }
+        "video" => {
+            let media = upload_others(client, element, session_name).await?;
+            Ok(message.document(media))
+        }
+        "file" => {
+            let media = upload_others(client, element, session_name).await?;
+            Ok(message.file(media))
+        }
+        _ => Err(io::ErrorKind::InvalidInput.into()),
+    }
 }
