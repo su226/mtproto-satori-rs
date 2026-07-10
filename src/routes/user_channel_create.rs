@@ -3,6 +3,7 @@ use std::sync::Arc;
 use grammers_client::Client;
 use ntex::http::{Response, StatusCode};
 use ntex::web;
+use presence_rs::Presence;
 use serde::Deserialize;
 
 use crate::error::WebError;
@@ -34,7 +35,7 @@ async fn user_channel_create(
     Ok(web::HttpResponse::Ok().json(&Channel {
         id: peer_id.to_string(),
         channel_type: ChannelType::Direct,
-        name: None,
-        parent_id: None,
+        name: Presence::Absent,
+        parent_id: Presence::Null,
     }))
 }

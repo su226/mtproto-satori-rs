@@ -38,6 +38,7 @@ impl SelfInfoCache {
         Ok(self.info.clone())
     }
 
+    #[allow(unused)]
     pub fn invalidate(&mut self) {
         self.last_updated = None;
     }

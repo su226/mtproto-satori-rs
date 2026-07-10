@@ -1,16 +1,29 @@
 use std::collections::HashMap;
 
+use presence_rs::Presence;
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
+#[inline]
+pub fn provide<T>(value: Option<T>) -> Presence<T> {
+    match value {
+        Some(value) => Presence::Some(value),
+        None => Presence::Null,
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct User {
     pub id: String,
-    pub name: Option<String>,
-    pub nick: Option<String>,
-    pub avatar: Option<String>,
-    pub is_bot: Option<bool>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub name: Presence<String>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub nick: Presence<String>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub avatar: Presence<String>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub is_bot: Presence<bool>,
 }
 
 #[derive(Serialize_repr, Deserialize_repr, Debug, Clone)]
@@ -26,11 +39,14 @@ pub enum LoginStatus {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Login {
     pub sn: u8,
-    pub platform: Option<String>,
-    pub user: Option<User>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub platform: Presence<String>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub user: Presence<User>,
     pub status: LoginStatus,
     pub adapter: String,
-    pub features: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub features: Presence<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -59,42 +75,58 @@ pub struct Channel {
     pub id: String,
     #[serde(rename = "type")]
     pub channel_type: ChannelType,
-    pub name: Option<String>,
-    pub parent_id: Option<String>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub name: Presence<String>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub parent_id: Presence<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Guild {
     pub id: String,
-    pub name: Option<String>,
-    pub avatar: Option<String>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub name: Presence<String>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub avatar: Presence<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Member {
-    pub user: Option<User>,
-    pub nick: Option<String>,
-    pub avatar: Option<String>,
-    pub joined_at: Option<f64>,
-    pub roles: Option<Vec<Role>>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub user: Presence<User>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub nick: Presence<String>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub avatar: Presence<String>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub joined_at: Presence<f64>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub roles: Presence<Vec<Role>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Role {
     pub id: String,
-    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub name: Presence<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Message {
     pub id: String,
     pub content: String,
-    pub channel: Option<Channel>,
-    pub guild: Option<Guild>,
-    pub member: Option<Member>,
-    pub user: Option<User>,
-    pub created_at: Option<f64>,
-    pub updated_at: Option<f64>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub channel: Presence<Channel>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub guild: Presence<Guild>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub member: Presence<Member>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub user: Presence<User>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub created_at: Presence<f64>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub updated_at: Presence<f64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -104,16 +136,26 @@ pub struct Event {
     pub event_type: String,
     pub timestamp: f64,
     pub login: Login,
-    pub argv: Option<Argv>,
-    pub button: Option<Button>,
-    pub channel: Option<Channel>,
-    pub guild: Option<Guild>,
-    pub member: Option<Member>,
-    pub message: Option<Message>,
-    pub operator: Option<User>,
-    pub role: Option<Role>,
-    pub user: Option<User>,
-    pub referrer: Option<()>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub argv: Presence<Argv>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub button: Presence<Button>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub channel: Presence<Channel>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub guild: Presence<Guild>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub member: Presence<Member>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub message: Presence<Message>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub operator: Presence<User>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub role: Presence<Role>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub user: Presence<User>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub referrer: Presence<()>,
 }
 
 #[derive(Debug, Clone)]
@@ -231,8 +273,10 @@ impl Serialize for WsOp {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct WsIdentifyBody {
-    pub token: Option<String>,
-    pub sn: Option<u32>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub token: Presence<String>,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub sn: Presence<u32>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

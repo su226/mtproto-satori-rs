@@ -2,6 +2,7 @@ use grammers_client::Client;
 use grammers_client::peer::Peer;
 use grammers_session::types::PeerId;
 use ntex::http::StatusCode;
+use presence_rs::Presence;
 
 use crate::error::WebError;
 use crate::satori::types::{Channel, ChannelType};
@@ -18,11 +19,11 @@ pub fn satori_channel_from_tg_peer(peer: &Peer, thread_id: Option<i32>) -> Chann
             _ => ChannelType::Text,
         },
         name: match peer {
-            Peer::User(user) => Some(user.full_name()),
-            Peer::Group(group) => group.title().map(|s| s.to_string()),
-            Peer::Channel(channel) => Some(channel.title().to_string()),
+            Peer::User(user) => Presence::Some(user.full_name()),
+            Peer::Group(group) => Presence::Some(group.title().unwrap_or_default().to_string()),
+            Peer::Channel(channel) => Presence::Some(channel.title().to_string()),
         },
-        parent_id: None,
+        parent_id: Presence::Null,
     }
 }
 

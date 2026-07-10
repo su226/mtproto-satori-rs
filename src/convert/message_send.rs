@@ -473,12 +473,17 @@ impl MessageEncoder {
                 }
                 let label = element.strip();
                 row.push(match element.get_attr_str("type") {
-                    Some("link") => Button::url(label, element.get_attr_str("href").unwrap_or("")),
+                    Some("link") => {
+                        Button::url(label, element.get_attr_str("href").unwrap_or_default())
+                    }
                     Some("input") => Button::switch(
                         label,
-                        element.get_attr_str("text").unwrap_or("").to_string(),
+                        element.get_attr_str("text").unwrap_or_default().to_string(),
                     ),
-                    _ => Button::data(label, element.get_attr_str("id").unwrap_or("").to_string()),
+                    _ => Button::data(
+                        label,
+                        element.get_attr_str("id").unwrap_or_default().to_string(),
+                    ),
                 });
             }
             "button-group" => {

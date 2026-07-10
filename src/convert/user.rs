@@ -1,7 +1,8 @@
 use grammers_client::peer::Peer;
+use presence_rs::Presence;
 
 use crate::convert::link::{satori_link_from_tg_peer_photo, satori_link_from_tg_user_photo};
-use crate::satori::types::User;
+use crate::satori::types::{User, provide};
 
 pub fn satori_user_from_tg_user(self_id: i64, user: &grammers_client::peer::User) -> User {
     User {
@@ -10,10 +11,10 @@ pub fn satori_user_from_tg_user(self_id: i64, user: &grammers_client::peer::User
             .bot_api_dialog_id()
             .unwrap_or_default()
             .to_string(),
-        name: user.username().map(|s| s.to_string()),
-        nick: Some(user.full_name()),
-        avatar: satori_link_from_tg_user_photo(self_id, user),
-        is_bot: Some(user.is_bot()),
+        name: provide(user.username().map(|s| s.to_string())),
+        nick: Presence::Some(user.full_name()),
+        avatar: provide(satori_link_from_tg_user_photo(self_id, user)),
+        is_bot: Presence::Some(user.is_bot()),
     }
 }
 
@@ -25,16 +26,16 @@ pub fn satori_user_from_tg_peer(self_id: i64, peer: &Peer) -> User {
             .bot_api_dialog_id()
             .unwrap_or_default()
             .to_string(),
-        name: peer.username().map(|s| s.to_string()),
+        name: provide(peer.username().map(|s| s.to_string())),
         nick: match peer {
-            Peer::User(user) => Some(user.full_name()),
-            Peer::Group(group) => group.title().map(|x| x.to_string()),
-            Peer::Channel(channel) => Some(channel.title().to_string()),
+            Peer::User(user) => Presence::Some(user.full_name()),
+            Peer::Group(group) => Presence::Some(group.title().unwrap_or_default().to_string()),
+            Peer::Channel(channel) => Presence::Some(channel.title().to_string()),
         },
-        avatar: satori_link_from_tg_peer_photo(self_id, peer),
+        avatar: provide(satori_link_from_tg_peer_photo(self_id, peer)),
         is_bot: match peer {
-            Peer::User(user) => Some(user.is_bot()),
-            _ => Some(false),
+            Peer::User(user) => Presence::Some(user.is_bot()),
+            _ => Presence::Some(false),
         },
     }
 }

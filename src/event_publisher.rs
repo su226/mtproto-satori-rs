@@ -2,6 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use constant_time_eq::constant_time_eq;
 use grammers_client::Client;
 use grammers_client::update::{Message, Update};
 use grammers_session::updates::UpdatesLike;
@@ -13,6 +14,7 @@ use ntex::web::ws;
 use ntex::ws::Item;
 use ntex::ws::error::ProtocolError;
 use ntex::{Service, chain, fn_service, rt, web};
+use presence_rs::Presence;
 use tokio::select;
 use tokio::sync::{Mutex as AMutex, broadcast, mpsc};
 
@@ -55,11 +57,11 @@ impl EventPublisher {
         }
     }
 
-    fn authorize(&self, token: &Option<String>) -> bool {
+    fn authorize(&self, token: &Presence<String>) -> bool {
         if self.settings.token.is_empty() {
             true
-        } else if let Some(token) = token {
-            *token == self.settings.token
+        } else if let Presence::Some(token) = token {
+            constant_time_eq(token.as_bytes(), self.settings.token.as_bytes())
         } else {
             false
         }
@@ -321,7 +323,7 @@ async fn events_service(
                         publisher.tx.subscribe(),
                         loop_stop_tx1.subscribe(),
                     ));
-                    if let Some(sn) = identify.sn {
+                    if let Presence::Some(sn) = identify.sn {
                         recovery_events(publisher.clone(), sink.clone(), sn).await;
                     }
                     Ok(None)

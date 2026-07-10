@@ -14,7 +14,7 @@ pub fn satori_link_from_tg_user_photo(self_id: i64, user: &User) -> Option<Strin
     let photo = user.photo()?;
     let access_hash = match &user.raw {
         UserEnum::Empty(_) => 0,
-        UserEnum::User(user) => user.access_hash.unwrap_or(0),
+        UserEnum::User(user) => user.access_hash.unwrap_or_default(),
     };
     let file_id = FileId::PeerPhoto {
         peer_id: user.id().bot_api_dialog_id().unwrap_or_default(),
@@ -34,7 +34,7 @@ pub fn satori_link_from_tg_group_photo(self_id: i64, group: &Group) -> Option<St
         Chat::Empty(_) => 0,
         Chat::Chat(_) => 0,
         Chat::Forbidden(_) => 0,
-        Chat::Channel(channel) => channel.access_hash.unwrap_or(0),
+        Chat::Channel(channel) => channel.access_hash.unwrap_or_default(),
         Chat::ChannelForbidden(forbidden) => forbidden.access_hash,
     };
     let file_id = FileId::PeerPhoto {
@@ -51,7 +51,7 @@ pub fn satori_link_from_tg_group_photo(self_id: i64, group: &Group) -> Option<St
 
 pub fn satori_link_from_tg_channel_photo(self_id: i64, channel: &Channel) -> Option<String> {
     let photo = channel.photo()?;
-    let access_hash = channel.raw.access_hash.unwrap_or(0);
+    let access_hash = channel.raw.access_hash.unwrap_or_default();
     let file_id = FileId::PeerPhoto {
         peer_id: channel.id().bot_api_dialog_id().unwrap_or_default(),
         access_hash,
@@ -85,8 +85,7 @@ pub fn satori_link_from_tg_photo(self_id: i64, photo: &Photo) -> Option<String> 
             _ => {}
         }
     }
-    sizes.sort_by_key(|size| size.1);
-    let size = sizes.last()?;
+    let size = sizes.iter().max_by_key(|size| size.1)?;
     let file_id = FileId::Photo {
         id: raw.id,
         access_hash: raw.access_hash,

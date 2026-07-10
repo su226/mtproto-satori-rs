@@ -3,6 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use grammers_client::message::Message;
 use grammers_client::peer::User;
 use grammers_client::update::CallbackQuery;
+use presence_rs::Presence;
 
 use crate::convert::login::satori_login_from_tg_user;
 use crate::convert::message_receive::{
@@ -11,7 +12,7 @@ use crate::convert::message_receive::{
 };
 use crate::convert::user::satori_user_from_tg_peer;
 use crate::satori::element::dump;
-use crate::satori::types::{Button, Event};
+use crate::satori::types::{Button, Event, provide};
 
 fn timestamp() -> f64 {
     SystemTime::now()
@@ -30,16 +31,16 @@ pub fn satori_event_from_tg_message(login: &User, message: &Message) -> Event {
         event_type: "message-created".to_string(),
         timestamp: satori_msg.created_at.unwrap_or_else(timestamp),
         login,
-        argv: None,
-        button: None,
+        argv: Presence::Null,
+        button: Presence::Null,
         channel: satori_msg.channel.clone(),
         guild: satori_msg.guild.clone(),
         member: satori_msg.member.clone(),
-        message: Some(satori_msg),
-        operator: None,
-        role: None,
+        message: Presence::Some(satori_msg),
+        operator: Presence::Null,
+        role: Presence::Null,
         user,
-        referrer: None,
+        referrer: Presence::Null,
     }
 }
 
@@ -58,16 +59,16 @@ pub fn satori_event_from_tg_messages(login: &User, messages: &[&Message]) -> Eve
         event_type: "message-created".to_string(),
         timestamp: first_msg.created_at.unwrap_or_else(timestamp),
         login,
-        argv: None,
-        button: None,
+        argv: Presence::Null,
+        button: Presence::Null,
         channel: first_msg.channel.clone(),
         guild: first_msg.guild.clone(),
         member: first_msg.member.clone(),
-        message: Some(first_msg),
-        operator: None,
-        role: None,
+        message: Presence::Some(first_msg),
+        operator: Presence::Null,
+        role: Presence::Null,
         user,
-        referrer: None,
+        referrer: Presence::Null,
     }
 }
 
@@ -90,15 +91,15 @@ pub fn satori_event_from_tg_callback(
         event_type: "interaction/button".to_string(),
         timestamp: timestamp(),
         login,
-        argv: None,
-        button: Some(button),
+        argv: Presence::Null,
+        button: Presence::Some(button),
         channel: message.channel.clone(),
         guild: message.guild.clone(),
-        member: None,
-        message: Some(message),
-        operator: None,
-        role: None,
-        user,
-        referrer: None,
+        member: Presence::Null,
+        message: Presence::Some(message),
+        operator: Presence::Null,
+        role: Presence::Null,
+        user: provide(user),
+        referrer: Presence::Null,
     }
 }

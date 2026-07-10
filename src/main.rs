@@ -22,6 +22,7 @@ use grammers_session::types::DcOption;
 use log::debug;
 use ntex::rt::spawn;
 use ntex::web;
+use regex::Regex;
 use tokio::sync::Mutex;
 
 use crate::authorization::SatoriAuthorization;
@@ -45,13 +46,17 @@ async fn main() -> io::Result<()> {
     let is_user = !settings.phone.is_empty();
     let is_bot = !settings.bot_token.is_empty();
 
-    if !is_user && !is_bot {
-        panic!("Either phone or bot_token is required.");
+    if (!is_user && !is_bot) || (is_user && is_bot) {
+        panic!("Either phone or bot_token is required (but not both).");
     }
 
     let session_name = if is_user {
-        // Can phone contain underscores or spaces? Can phone omit leading plus? Maybe normalize it?
-        format!("user_{}", settings.phone)
+        format!(
+            "user_{}",
+            Regex::new(r"[+()\s_-]")
+                .unwrap()
+                .replace_all(&settings.phone, "")
+        )
     } else {
         format!(
             "bot_{}",
@@ -92,7 +97,7 @@ async fn main() -> io::Result<()> {
         },
         ..Default::default()
     };
-    let pool = SenderPool::with_configuration(session.clone(), settings.api_id, params);
+    let pool = SenderPool::with_configuration(session, settings.api_id, params);
     let client = Arc::new(Client::new(pool.handle));
 
     debug!("Logging in.");

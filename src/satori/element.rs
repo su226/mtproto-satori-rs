@@ -29,6 +29,7 @@ impl Element {
         }
     }
 
+    #[allow(unused)]
     pub fn get_attr_bool(&self, key: &str) -> Option<bool> {
         match self.attrs.get(key) {
             Some(AttrValue::Bool(value)) => Some(*value),
@@ -38,7 +39,7 @@ impl Element {
 
     pub fn get_text(&self) -> Option<&str> {
         if self.tag == "text" {
-            Some(self.get_attr_str("content").unwrap_or(""))
+            Some(self.get_attr_str("content").unwrap_or_default())
         } else {
             None
         }
@@ -66,7 +67,7 @@ impl Element {
 
     pub fn strip(&self) -> String {
         if self.tag == "text" {
-            self.get_attr_str("content").unwrap_or("").to_string()
+            self.get_attr_str("content").unwrap_or_default().to_string()
         } else {
             let mut out = String::new();
             for child in &self.children {
@@ -90,7 +91,10 @@ impl Element {
 impl Display for Element {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.tag == "text" {
-            f.write_str(&escape(self.get_attr_str("content").unwrap_or(""), false))?;
+            f.write_str(&escape(
+                self.get_attr_str("content").unwrap_or_default(),
+                false,
+            ))?;
         } else if self.children.is_empty() {
             f.write_str("<")?;
             f.write_str(&self.tag)?;

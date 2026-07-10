@@ -1,7 +1,8 @@
 use config::{Config, ConfigError, File};
 use serde::Deserialize;
+use serde_default::DefaultFromSerde;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, DefaultFromSerde)]
 pub struct MergeMediaGroup {
     #[serde(default = "default_merge_media_group_receive")]
     pub receive: u64,
@@ -9,12 +10,6 @@ pub struct MergeMediaGroup {
 
 fn default_merge_media_group_receive() -> u64 {
     100
-}
-
-impl Default for MergeMediaGroup {
-    fn default() -> Self {
-        Self { receive: 100 }
-    }
 }
 
 #[derive(Deserialize)]

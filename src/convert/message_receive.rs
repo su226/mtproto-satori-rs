@@ -4,13 +4,14 @@ use grammers_client::media::Media;
 use grammers_client::tl::enums::{MessageEntity, MessageReplyHeader as MessageReplyHeaderEnum};
 use grammers_session::types::PeerId;
 use log::trace;
+use presence_rs::Presence;
 
 use crate::convert::channel::satori_channel_from_tg_peer;
 use crate::convert::guild::satori_guild_from_tg_peer;
 use crate::convert::link::{satori_link_from_tg_document, satori_link_from_tg_photo};
 use crate::convert::user::satori_user_from_tg_peer;
 use crate::satori::element::{AttrValue, Element, dump};
-use crate::satori::types::Message;
+use crate::satori::types::{Message, provide};
 use crate::telegram::is_audio;
 
 #[derive(PartialEq)]
@@ -426,18 +427,24 @@ pub fn satori_message_from_tg_message(
     Message {
         id: message.id().to_string(),
         content: dump(&satori_elements_from_tg_message(self_id, message)),
-        channel: message
-            .peer()
-            .map(|peer| satori_channel_from_tg_peer(peer, extract_thread_id(message))),
-        guild: message
-            .peer()
-            .and_then(|peer| satori_guild_from_tg_peer(self_id, peer)),
-        member: None,
-        user: message
-            .sender()
-            .or_else(|| message.peer()) // Channel posts may have no sender
-            .map(|peer| satori_user_from_tg_peer(self_id, peer)),
-        created_at: Some(message.date().timestamp() as f64),
-        updated_at: message.edit_date().map(|x| x.timestamp() as f64),
+        channel: provide(
+            message
+                .peer()
+                .map(|peer| satori_channel_from_tg_peer(peer, extract_thread_id(message))),
+        ),
+        guild: provide(
+            message
+                .peer()
+                .and_then(|peer| satori_guild_from_tg_peer(self_id, peer)),
+        ),
+        member: Presence::Absent,
+        user: provide(
+            message
+                .sender()
+                .or_else(|| message.peer()) // Channel posts may have no sender
+                .map(|peer| satori_user_from_tg_peer(self_id, peer)),
+        ),
+        created_at: Presence::Some(message.date().timestamp() as f64),
+        updated_at: provide(message.edit_date().map(|x| x.timestamp() as f64)),
     }
 }
