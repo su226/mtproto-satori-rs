@@ -282,7 +282,7 @@ impl MessageEncoder {
         match element.tag.as_str() {
             "text" => self
                 .current
-                .push_text(&element.get_text().unwrap_or_default()),
+                .push_text(element.get_text().unwrap_or_default()),
             "br" => self.current.push_text("\n"),
             "p" => {
                 if !self.current.content.is_empty() && !self.current.content.ends_with("\n") {

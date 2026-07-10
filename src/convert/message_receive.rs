@@ -426,7 +426,7 @@ pub fn satori_message_from_tg_message(
 ) -> Message {
     Message {
         id: message.id().to_string(),
-        content: dump(&satori_elements_from_tg_message(self_id, message)),
+        content: Presence::Some(dump(&satori_elements_from_tg_message(self_id, message))),
         channel: provide(
             message
                 .peer()

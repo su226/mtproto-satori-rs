@@ -124,6 +124,7 @@ pub fn dump(elements: &[Element]) -> String {
     out
 }
 
+#[allow(unused)]
 pub fn strip(elements: &[Element]) -> String {
     let mut out = String::new();
     for element in elements {

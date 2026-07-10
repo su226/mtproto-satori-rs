@@ -26,7 +26,7 @@ pub struct User {
     pub is_bot: Presence<bool>,
 }
 
-#[derive(Serialize_repr, Deserialize_repr, Debug, Clone)]
+#[derive(Serialize_repr, Deserialize_repr, Debug, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum LoginStatus {
     Offline = 0,
@@ -61,7 +61,7 @@ pub struct Button {
     pub id: String,
 }
 
-#[derive(Serialize_repr, Deserialize_repr, Debug, Clone)]
+#[derive(Serialize_repr, Deserialize_repr, Debug, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum ChannelType {
     Text = 0,
@@ -114,7 +114,8 @@ pub struct Role {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Message {
     pub id: String,
-    pub content: String,
+    #[serde(skip_serializing_if = "Presence::is_absent")]
+    pub content: Presence<String>,
     #[serde(skip_serializing_if = "Presence::is_absent")]
     pub channel: Presence<Channel>,
     #[serde(skip_serializing_if = "Presence::is_absent")]
@@ -158,9 +159,41 @@ pub struct Event {
     pub referrer: Presence<()>,
 }
 
+impl Event {
+    pub fn format_session(&self) -> String {
+        let user_args = if let Presence::Some(user) = &self.user {
+            format_args!("{}({})", user.name.as_deref().unwrap_or("???"), user.id)
+        } else {
+            format_args!("???")
+        };
+        if let Presence::Some(channel) = &self.channel {
+            if channel.channel_type == ChannelType::Direct {
+                format!("[{}@direct]", user_args)
+            } else if let Presence::Some(guild) = &self.guild {
+                format!(
+                    "[{}@{}:{}({})]",
+                    user_args,
+                    guild.name.as_deref().unwrap_or("???"),
+                    channel.name.as_deref().unwrap_or("???"),
+                    channel.id
+                )
+            } else {
+                format!(
+                    "[{}@{}({})]",
+                    user_args,
+                    channel.name.as_deref().unwrap_or("???"),
+                    channel.id
+                )
+            }
+        } else {
+            format!("[{}@???]", user_args)
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum WsOp {
-    Event(Event),
+    Event(Box<Event>),
     Ping,
     Pong,
     Identify(WsIdentifyBody),
@@ -196,7 +229,7 @@ impl<'de> Deserialize<'de> for WsOp {
             Event {
                 #[allow(unused)]
                 op: Literal<0>,
-                body: Event,
+                body: Box<Event>,
             },
             Ping {
                 #[allow(unused)]
