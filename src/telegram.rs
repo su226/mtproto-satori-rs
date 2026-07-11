@@ -7,7 +7,7 @@ use std::path::Path;
 use grammers_client::Client;
 use grammers_client::media::Uploaded;
 use grammers_client::message::{InputMessage, ReplyMarkup};
-use grammers_client::tl::enums::{Document, DocumentAttribute};
+use grammers_client::tl::enums::{Document, DocumentAttribute, Message, MessageMedia};
 use grammers_client::tl::types::MessageMediaDocument;
 use tokio::fs;
 use tokio::io::AsyncSeekExt;
@@ -41,4 +41,16 @@ pub fn is_audio(document: &MessageMediaDocument) -> bool {
         }
     }
     false
+}
+
+pub fn is_supported_media(media: &MessageMedia) -> bool {
+    matches!(media, MessageMedia::Photo(_) | MessageMedia::Geo(_) | MessageMedia::Document(_))
+}
+
+pub fn is_supported_message(message: &Message) -> bool {
+    if let Message::Message(message) = message {
+        !message.message.is_empty() || message.media.as_ref().is_some_and(is_supported_media)
+    } else {
+        false
+    }
 }

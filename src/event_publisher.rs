@@ -27,6 +27,7 @@ use crate::error::WebError;
 use crate::satori::types::{Event, WsOp, WsReadyBody};
 use crate::self_info_cache::SelfInfoCache;
 use crate::settings::Settings;
+use crate::telegram::is_supported_message;
 
 struct MediaGroup {
     time: Instant,
@@ -83,7 +84,9 @@ impl EventPublisher {
 
     async fn handle(self: Arc<Self>, update: Update) {
         match &update {
-            Update::NewMessage(message) => self.handle_new_message(message).await,
+            Update::NewMessage(message) if is_supported_message(&(**message).raw) => {
+                self.handle_new_message(message).await
+            }
             Update::CallbackQuery(callback) => self.handle_callback_query(callback).await,
             _ => {
                 let mut buf = Vec::new();
