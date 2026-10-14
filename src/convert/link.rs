@@ -1,66 +1,30 @@
 use grammers_client::media::{Document, Photo};
 use grammers_client::peer::{Channel, Group, Peer, User};
-use grammers_client::tl::enums::{
-    Chat,
-    Document as DocumentEnum,
-    Photo as PhotoEnum,
-    PhotoSize,
-    User as UserEnum,
-};
+use grammers_client::tl::enums::{Document as DocumentEnum, Photo as PhotoEnum, PhotoSize};
 
 use crate::telegram::file_id::FileId;
 
 pub fn satori_link_from_tg_user_photo(self_id: i64, user: &User) -> Option<String> {
-    let photo = user.photo()?;
-    let access_hash = match &user.raw {
-        UserEnum::Empty(_) => 0,
-        UserEnum::User(user) => user.access_hash.unwrap_or_default(),
-    };
-    let file_id = FileId::PeerPhoto {
-        peer_id: user.id().bot_api_dialog_id().unwrap_or_default(),
-        access_hash,
-        photo_id: photo.photo_id,
-    };
     Some(format!(
         "internal:telegram/{}/{}",
         self_id,
-        file_id.encode(),
+        FileId::user_photo_big(user, user.photo()?).encode(),
     ))
 }
 
 pub fn satori_link_from_tg_group_photo(self_id: i64, group: &Group) -> Option<String> {
-    let photo = group.photo()?;
-    let access_hash = match &group.raw {
-        Chat::Empty(_) => 0,
-        Chat::Chat(_) => 0,
-        Chat::Forbidden(_) => 0,
-        Chat::Channel(channel) => channel.access_hash.unwrap_or_default(),
-        Chat::ChannelForbidden(forbidden) => forbidden.access_hash,
-    };
-    let file_id = FileId::PeerPhoto {
-        peer_id: group.id().bot_api_dialog_id().unwrap_or_default(),
-        access_hash,
-        photo_id: photo.photo_id,
-    };
     Some(format!(
         "internal:telegram/{}/{}",
         self_id,
-        file_id.encode(),
+        FileId::group_photo_big(group, group.photo()?).encode(),
     ))
 }
 
 pub fn satori_link_from_tg_channel_photo(self_id: i64, channel: &Channel) -> Option<String> {
-    let photo = channel.photo()?;
-    let access_hash = channel.raw.access_hash.unwrap_or_default();
-    let file_id = FileId::PeerPhoto {
-        peer_id: channel.id().bot_api_dialog_id().unwrap_or_default(),
-        access_hash,
-        photo_id: photo.photo_id,
-    };
     Some(format!(
         "internal:telegram/{}/{}",
         self_id,
-        file_id.encode(),
+        FileId::channel_photo_big(channel, channel.photo()?).encode(),
     ))
 }
 
@@ -85,17 +49,11 @@ pub fn satori_link_from_tg_photo(self_id: i64, photo: &Photo) -> Option<String> 
             _ => {}
         }
     }
-    let size = sizes.iter().max_by_key(|size| size.1)?;
-    let file_id = FileId::Photo {
-        id: raw.id,
-        access_hash: raw.access_hash,
-        file_reference: raw.file_reference.clone(),
-        thumb_size: size.0.as_bytes().to_vec(),
-    };
+    let size = sizes.iter().max_by_key(|size| size.1)?.0.chars().next()?;
     Some(format!(
         "internal:telegram/{}/{}",
         self_id,
-        file_id.encode(),
+        FileId::photo(raw, size).encode(),
     ))
 }
 
@@ -104,14 +62,9 @@ pub fn satori_link_from_tg_document(self_id: i64, document: &Document) -> Option
         Some(DocumentEnum::Document(doc)) => doc,
         _ => return None,
     };
-    let file_id = FileId::Document {
-        id: raw.id,
-        access_hash: raw.access_hash,
-        file_reference: raw.file_reference.clone(),
-    };
     Some(format!(
         "internal:telegram/{}/{}",
         self_id,
-        file_id.encode(),
+        FileId::document(raw).encode(),
     ))
 }
