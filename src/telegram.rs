@@ -44,7 +44,10 @@ pub fn is_audio(document: &MessageMediaDocument) -> bool {
 }
 
 pub fn is_supported_media(media: &MessageMedia) -> bool {
-    matches!(media, MessageMedia::Photo(_) | MessageMedia::Geo(_) | MessageMedia::Document(_))
+    matches!(
+        media,
+        MessageMedia::Photo(_) | MessageMedia::Geo(_) | MessageMedia::Document(_)
+    )
 }
 
 pub fn is_supported_message(message: &Message) -> bool {

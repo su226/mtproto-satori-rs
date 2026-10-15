@@ -1,5 +1,6 @@
 /target
 /config.toml
 /session_*.db
+/session_*.db-shm
 /session_*.db-wal
 /files_*

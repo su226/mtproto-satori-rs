@@ -11,7 +11,11 @@ use crate::event_publisher::{EventPublisher, MediaGroup};
 
 impl EventPublisher {
     pub async fn handle_new_message(self: Arc<Self>, message: &Message) {
-        if self.settings.merge_media_group.receive > 0
+        if message.peer().is_none() {
+            // Outgoing messages may have no peer. WTF?
+            return;
+        }
+        let event = if self.settings.merge_media_group.receive > 0
             && let Some(group_id) = message.grouped_id()
         {
             let now = {
@@ -65,9 +69,7 @@ impl EventPublisher {
             };
             drop(self_info_cache);
             let contents = messages.iter().map(|x| &**x).collect::<Vec<_>>();
-            let event = satori_event_from_tg_messages(&login, contents.as_slice());
-            debug!("Received message: {:#?} => {:#?}", messages, event);
-            self.send(event);
+            satori_event_from_tg_messages(&login, contents.as_slice())
         } else {
             let mut self_info_cache = self.self_info_cache.lock().await;
             let login = match self_info_cache.get().await {
@@ -81,15 +83,15 @@ impl EventPublisher {
                 }
             };
             drop(self_info_cache);
-            let event = satori_event_from_tg_message(&login, message);
-            if let Presence::Some(message) = &event.message
-                && let Presence::Some(content) = &message.content
-            {
-                debug!("Received message: {} {:?}", event.format_session(), content);
-            } else {
-                debug!("Received message: {} ???", event.format_session());
-            }
-            self.send(event);
+            satori_event_from_tg_message(&login, message)
+        };
+        if let Presence::Some(message) = &event.message
+            && let Presence::Some(content) = &message.content
+        {
+            debug!("Received message: {} {:?}", event.format_session(), content);
+        } else {
+            debug!("Received message: {} ???", event.format_session());
         }
+        self.send(event);
     }
 }

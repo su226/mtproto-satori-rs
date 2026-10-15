@@ -1,11 +1,11 @@
 //! Bot-API style file ID. Used by official bot API and Pyrogram.
 //! Also supported in Telethon.
 
-use std::iter::repeat;
+use std::iter::repeat_n;
 
 use base64::prelude::*;
 use grammers_client::media::Downloadable;
-use grammers_client::peer::{Channel, Group, User};
+use grammers_client::peer::{Channel, Community, Group, User};
 use grammers_client::tl::enums::{
     Chat,
     DocumentAttribute,
@@ -59,7 +59,7 @@ fn rle_decode(data: &[u8]) -> Vec<u8> {
         if *byte == 0 {
             is_zero = true;
         } else if is_zero {
-            result.extend(repeat(0).take(*byte as usize));
+            result.extend(repeat_n(0, *byte as usize));
             is_zero = false;
         } else {
             result.push(*byte);
@@ -276,7 +276,7 @@ impl Deserializable for PhotoSizeSource {
             2 => {
                 let dialog_id = i64::deserialize(buf)?;
                 let dialog_id = PeerId::from_bot_api_dialog_id(dialog_id)
-                    .ok_or_else(|| deserialize::Error::UnexpectedConstructor { id: variant as u32 })?;
+                    .ok_or(deserialize::Error::UnexpectedConstructor { id: variant as u32 })?;
                 let dialog_access_hash = i64::deserialize(buf)?;
                 let dialog_access_hash = PeerAuth::from_hash(dialog_access_hash);
                 Ok(Self::DialogPhotoSmall {
@@ -287,7 +287,7 @@ impl Deserializable for PhotoSizeSource {
             3 => {
                 let dialog_id = i64::deserialize(buf)?;
                 let dialog_id = PeerId::from_bot_api_dialog_id(dialog_id)
-                    .ok_or_else(|| deserialize::Error::UnexpectedConstructor { id: variant as u32 })?;
+                    .ok_or(deserialize::Error::UnexpectedConstructor { id: variant as u32 })?;
                 let dialog_access_hash = i64::deserialize(buf)?;
                 let dialog_access_hash = PeerAuth::from_hash(dialog_access_hash);
                 Ok(Self::DialogPhotoBig {
@@ -316,7 +316,7 @@ impl Deserializable for PhotoSizeSource {
             6 => {
                 let dialog_id = i64::deserialize(buf)?;
                 let dialog_id = PeerId::from_bot_api_dialog_id(dialog_id)
-                    .ok_or_else(|| deserialize::Error::UnexpectedConstructor { id: 0 })?;
+                    .ok_or(deserialize::Error::UnexpectedConstructor { id: 0 })?;
                 let dialog_access_hash = i64::deserialize(buf)?;
                 let dialog_access_hash = PeerAuth::from_hash(dialog_access_hash);
                 let volume_id = i64::deserialize(buf)?;
@@ -334,7 +334,7 @@ impl Deserializable for PhotoSizeSource {
             7 => {
                 let dialog_id = i64::deserialize(buf)?;
                 let dialog_id = PeerId::from_bot_api_dialog_id(dialog_id)
-                    .ok_or_else(|| deserialize::Error::UnexpectedConstructor { id: 0 })?;
+                    .ok_or(deserialize::Error::UnexpectedConstructor { id: 0 })?;
                 let dialog_access_hash = i64::deserialize(buf)?;
                 let dialog_access_hash = PeerAuth::from_hash(dialog_access_hash);
                 let volume_id = i64::deserialize(buf)?;
@@ -551,6 +551,8 @@ impl FileId {
             Chat::Forbidden(_) => 0,
             Chat::Channel(channel) => channel.access_hash.unwrap_or_default(),
             Chat::ChannelForbidden(forbidden) => forbidden.access_hash,
+            Chat::Community(community) => community.access_hash.unwrap_or_default(),
+            Chat::CommunityForbidden(forbidden) => forbidden.access_hash.unwrap_or_default(),
         };
         let source = PhotoSizeSource::DialogPhotoBig {
             dialog_id: group.id(),
@@ -574,6 +576,26 @@ impl FileId {
         let access_hash = channel.raw.access_hash.unwrap_or_default();
         let source = PhotoSizeSource::DialogPhotoBig {
             dialog_id: channel.id(),
+            dialog_access_hash: PeerAuth::from_hash(access_hash),
+        };
+        Self {
+            major: MAJOR,
+            minor: MINOR,
+            file_type: source.get_file_type(),
+            dc_id: photo.dc_id,
+            file_reference: Vec::new(),
+            variant: FileIdVariant::Photo {
+                file_id: photo.photo_id,
+                access_hash: 0,
+                source,
+            },
+        }
+    }
+
+    pub fn community_photo_big(community: &Community, photo: &ChatPhoto) -> Self {
+        let access_hash = community.raw.access_hash.unwrap_or_default();
+        let source = PhotoSizeSource::DialogPhotoBig {
+            dialog_id: community.id(),
             dialog_access_hash: PeerAuth::from_hash(access_hash),
         };
         Self {
@@ -645,7 +667,7 @@ impl FileId {
         let (minor, data) = data.split_last()?;
         let minor = *minor;
 
-        let mut cursor = Cursor::from_slice(&data);
+        let mut cursor = Cursor::from_slice(data);
 
         let mut file_type = u32::deserialize(&mut cursor).ok()?;
         let has_web_location = file_type & WEB_LOCATION_FLAG != 0;

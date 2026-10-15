@@ -5,8 +5,8 @@ mod event_publisher;
 mod routes;
 mod satori;
 mod self_info_cache;
-mod session;
 mod settings;
+mod state;
 mod telegram;
 
 use std::io;
@@ -35,8 +35,16 @@ use crate::routes::message_update::message_update;
 use crate::routes::user_channel_create::user_channel_create;
 use crate::routes::user_get::user_get;
 use crate::self_info_cache::SelfInfoCache;
-use crate::session::SessionName;
 use crate::settings::Settings;
+use crate::state::AppStateBuilder;
+
+async fn is_fresh_login(session: &SqliteSession) -> bool {
+    let updates_state = session
+        .updates_state()
+        .await
+        .expect("Failed to read session");
+    updates_state.date == 0
+}
 
 #[ntex::main]
 async fn main() -> io::Result<()> {
@@ -78,7 +86,7 @@ async fn main() -> io::Result<()> {
             .await
             .expect("Failed to open session database"),
     );
-    if settings.test_mode {
+    if settings.test_mode && is_fresh_login(&session).await {
         session
             .set_dc_option(&DcOption {
                 id: 2,
@@ -98,7 +106,7 @@ async fn main() -> io::Result<()> {
         ..Default::default()
     };
     let pool = SenderPool::with_configuration(session, settings.api_id, params);
-    let client = Arc::new(Client::new(pool.handle));
+    let client = Client::new(pool.handle);
 
     debug!("Logging in.");
 
@@ -140,7 +148,7 @@ async fn main() -> io::Result<()> {
         self_info_cache.clone(),
         settings.clone(),
     ));
-    let session_name = Arc::new(SessionName(session_name));
+    let session_name = Arc::new(session_name);
 
     spawn(
         event_publisher
@@ -149,34 +157,47 @@ async fn main() -> io::Result<()> {
     );
 
     let bind = &settings.clone().bind;
+    let state = AppStateBuilder::new(
+        settings.clone(),
+        client,
+        self_info_cache,
+        event_publisher,
+        session_name,
+    );
 
-    web::HttpServer::new(async move || {
+    web::server_with_config(state, async move |_| {
         let path = if settings.path.is_empty() {
             "/"
         } else {
             &settings.path
         };
-        web::App::new()
-            .state(settings.clone())
-            .state(client.clone())
-            .state(self_info_cache.clone())
-            .state(event_publisher.clone())
-            .state(session_name.clone())
-            .state(web::types::JsonConfig::default().limit(settings.json_size_limit))
-            .service(
-                web::scope(path)
-                    .middleware(SatoriAuthorization)
-                    .service(internal)
-                    .service(login_get)
-                    .service(message_create)
-                    .service(message_get)
-                    .service(message_update)
-                    .service(user_channel_create)
-                    .service(user_get)
-                    .service(events),
+        let cfg = web::WebAppConfig::new()
+            .set_state(web::types::JsonConfig::default().limit(settings.json_size_limit));
+        let scope = web::scope(path)
+            .middleware(SatoriAuthorization)
+            .route(
+                "/v1/proxy/internal:telegram/{user_id}/{path}",
+                web::get().to_with_state(internal),
             )
+            .route("/v1/login.get", web::post().to_with_state(login_get))
+            .route(
+                "/v1/message.create",
+                web::post().to_with_state(message_create),
+            )
+            .route("/v1/message.get", web::post().to_with_state(message_get))
+            .route(
+                "/v1/message.update",
+                web::post().to_with_state(message_update),
+            )
+            .route(
+                "/v1/user.channel.create",
+                web::post().to_with_state(user_channel_create),
+            )
+            .route("/v1/user.get", web::post().to_with_state(user_get))
+            .route("/v1/events", web::get().to_with_state(events));
+        web::App::new().with_config(cfg).service(scope)
     })
-    .bind(bind)?
+    .bind(bind, ntex::SharedCfg::default())?
     .run()
     .await
 }

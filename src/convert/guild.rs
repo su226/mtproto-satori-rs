@@ -1,7 +1,11 @@
 use grammers_client::peer::Peer;
 use presence_rs::Presence;
 
-use crate::convert::link::{satori_link_from_tg_channel_photo, satori_link_from_tg_group_photo};
+use crate::convert::link::{
+    satori_link_from_tg_channel_photo,
+    satori_link_from_tg_community_photo,
+    satori_link_from_tg_group_photo,
+};
 use crate::satori::types::{Guild, provide};
 
 pub fn satori_guild_from_tg_peer(self_id: i64, peer: &Peer) -> Option<Guild> {
@@ -24,6 +28,15 @@ pub fn satori_guild_from_tg_peer(self_id: i64, peer: &Peer) -> Option<Guild> {
                 .to_string(),
             name: Presence::Some(channel.title().to_string()),
             avatar: provide(satori_link_from_tg_channel_photo(self_id, channel)),
+        }),
+        Peer::Community(community) => Some(Guild {
+            id: community
+                .id()
+                .bot_api_dialog_id()
+                .unwrap_or_default()
+                .to_string(),
+            name: Presence::Some(community.title().to_string()),
+            avatar: provide(satori_link_from_tg_community_photo(self_id, community)),
         }),
     }
 }

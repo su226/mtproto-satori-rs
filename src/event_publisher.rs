@@ -1,7 +1,9 @@
 mod callback_query;
 mod new_message;
 
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -12,21 +14,22 @@ use grammers_client::update::{Message, Update};
 use grammers_session::updates::UpdatesLike;
 use log::{debug, trace, warn};
 use ntex::rt::spawn;
-use ntex::service::{fn_factory_with_config, fn_shutdown, map_config};
 use ntex::time::sleep;
 use ntex::web::ws;
 use ntex::ws::Item;
 use ntex::ws::error::ProtocolError;
-use ntex::{Service, chain, fn_service, rt, web};
+use ntex::{Ctx, Service, rt, web};
 use presence_rs::Presence;
 use tokio::select;
 use tokio::sync::{Mutex as AMutex, broadcast, mpsc};
+use tokio_util::sync::CancellationToken;
 
 use crate::convert::login::satori_login_from_tg_user;
-use crate::error::WebError;
+use crate::error::AppError;
 use crate::satori::types::{Event, WsOp, WsReadyBody};
 use crate::self_info_cache::SelfInfoCache;
 use crate::settings::Settings;
+use crate::state::AppState;
 use crate::telegram::is_supported_message;
 
 struct MediaGroup {
@@ -99,11 +102,7 @@ impl EventPublisher {
         }
     }
 
-    pub async fn publish(
-        self: Arc<Self>,
-        client: Arc<Client>,
-        updates: mpsc::UnboundedReceiver<UpdatesLike>,
-    ) {
+    pub async fn publish(self: Arc<Self>, client: Client, updates: mpsc::Receiver<UpdatesLike>) {
         let mut updates = client
             .stream_updates(updates, Default::default())
             .await
@@ -128,61 +127,52 @@ impl EventPublisher {
     }
 }
 
-struct ClientState {
-    authorized: bool,
-    last_heartbeat: Option<Instant>,
+struct WsService {
+    authorizing: Cell<bool>,
+    authorized: Rc<Cell<bool>>,
+    last_heartbeat: Rc<Cell<Option<Instant>>>,
+    buffer: RefCell<Vec<u8>>,
+    publisher: Arc<EventPublisher>,
+    authorize_cancellation_token: CancellationToken,
+    broadcast_cancellation_token: CancellationToken,
 }
 
-impl ClientState {
-    fn check_heartbeat(&self) -> Option<Duration> {
-        match self.last_heartbeat {
-            Some(last_heartbeat) => {
-                let elapsed = Instant::now() - last_heartbeat;
-                let max_elapsed = Duration::from_secs(30);
-                if elapsed > max_elapsed {
-                    None
-                } else {
-                    Some(max_elapsed - elapsed)
-                }
-            }
-            None => None,
+impl WsService {
+    pub fn new(publisher: Arc<EventPublisher>) -> Self {
+        Self {
+            authorizing: Cell::new(false),
+            authorized: Rc::new(Cell::new(false)),
+            last_heartbeat: Rc::new(Cell::new(None)),
+            buffer: RefCell::new(Vec::new()),
+            publisher,
+            authorize_cancellation_token: CancellationToken::new(),
+            broadcast_cancellation_token: CancellationToken::new(),
         }
     }
 }
 
-#[web::get("/v1/events")]
-pub async fn events(
-    req: web::HttpRequest,
-    publisher: web::types::State<Arc<EventPublisher>>,
-) -> Result<web::HttpResponse, web::Error> {
-    ws::start(
-        req,
-        None::<&str>,
-        map_config(fn_factory_with_config(events_service), move |cfg| {
-            (cfg, (*publisher).clone())
-        }),
-    )
-    .await
-}
+impl Service<ws::WsSink, ws::Frame> for WsService {
+    type Res = Option<ws::Message>;
+    type Error = AppError;
 
-async fn events_service(
-    (sink, publisher): (ws::WsSink, Arc<EventPublisher>),
-) -> Result<impl Service<ws::Frame, Response = Option<ws::Message>, Error = WebError>, web::Error> {
-    let state = Arc::new(Mutex::new(ClientState {
-        authorized: false,
-        last_heartbeat: None,
-    }));
+    async fn ready(&self, ctx: Ctx<'_, Self, ws::WsSink>) -> Result<(), Self::Error> {
+        if !self.authorizing.replace(true) {
+            spawn(check_identify(
+                ctx.st().clone(),
+                self.authorized.clone(),
+                self.authorize_cancellation_token.clone(),
+            ));
+        }
+        Ok(())
+    }
 
-    let (init_stop_tx1, init_stop_rx) = mpsc::channel(1);
-    let init_stop_tx2 = init_stop_tx1.clone();
-    let (loop_stop_tx1, _) = broadcast::channel(1);
-    let loop_stop_tx2 = loop_stop_tx1.clone();
-    rt::spawn(check_identify(sink.clone(), state.clone(), init_stop_rx));
-
-    let buffer: Arc<AMutex<Vec<u8>>> = Arc::new(AMutex::new(Vec::new()));
-
-    let service = fn_service(async move |frame| -> Result<_, WebError> {
-        let handle_op = async |bytes| -> Result<_, WebError> {
+    async fn call(
+        &self,
+        frame: ws::Frame,
+        ctx: Ctx<'_, Self, ws::WsSink>,
+    ) -> Result<Self::Res, Self::Error> {
+        let sink = ctx.st();
+        let handle_op = async |bytes| -> Result<_, AppError> {
             let op = match serde_json::from_slice::<WsOp>(bytes) {
                 Ok(op) => op,
                 Err(err) => {
@@ -193,26 +183,28 @@ async fn events_service(
             match op {
                 WsOp::Identify(identify) => {
                     {
-                        let mut state = state.lock().unwrap();
-                        if state.authorized {
+                        if self.authorized.get() {
                             warn!("Multiple IDENTIFY received.");
                             return Ok(None);
                         }
-                        if !publisher.authorize(&identify.token) {
+                        if !self.publisher.authorize(&identify.token) {
                             warn!("Invalid WebSocket token received.");
-                            return Ok(Some(ws::Message::Close(Some(ws::CloseReason {
+                            sink.send(ws::Message::Close(Some(ws::CloseReason {
                                 code: ws::CloseCode::Policy,
-                                description: Some("Invalievent_rxd token.".to_string()),
-                            }))));
+                                description: Some("Invalid token.".to_string()),
+                            })))
+                            .await?;
+                            sink.io().close();
+                            return Ok(None);
                         }
                         debug!("Successfully authorized WebSocket.");
-                        state.authorized = true;
+                        self.authorized.set(true);
                     }
-                    let _ = init_stop_tx1.send(()).await;
+                    self.authorize_cancellation_token.cancel();
                     sink.send(ws::Message::Text(
                         serde_json::to_string(&WsOp::Ready(WsReadyBody {
                             logins: vec![satori_login_from_tg_user(
-                                &publisher.self_info_cache.lock().await.get().await?,
+                                &self.publisher.self_info_cache.lock().await.get().await?,
                             )],
                             proxy_urls: Vec::new(),
                         }))?
@@ -221,22 +213,22 @@ async fn events_service(
                     .await?;
                     rt::spawn(check_heartbeat(
                         sink.clone(),
-                        state.clone(),
-                        loop_stop_tx1.subscribe(),
+                        self.last_heartbeat.clone(),
+                        self.broadcast_cancellation_token.clone(),
                     ));
                     rt::spawn(send_events(
                         sink.clone(),
-                        publisher.tx.subscribe(),
-                        loop_stop_tx1.subscribe(),
+                        self.publisher.tx.subscribe(),
+                        self.broadcast_cancellation_token.clone(),
                     ));
                     if let Presence::Some(sn) = identify.sn {
-                        recovery_events(publisher.clone(), sink.clone(), sn).await;
+                        recovery_events(self.publisher.clone(), sink.clone(), sn).await;
                     }
                     Ok(None)
                 }
                 WsOp::Ping => {
                     trace!("WebSocket received PING.");
-                    state.lock().unwrap().last_heartbeat = Some(Instant::now());
+                    self.last_heartbeat.set(Some(Instant::now()));
                     Ok(Some(ws::Message::Text(
                         serde_json::to_string(&WsOp::Pong)?.into(),
                     )))
@@ -254,45 +246,59 @@ async fn events_service(
             ws::Frame::Pong(_) => None,
             ws::Frame::Continuation(item) => match item {
                 Item::FirstText(bytes) | Item::FirstBinary(bytes) | Item::Continue(bytes) => {
-                    buffer.lock().await.extend(&bytes);
+                    self.buffer.borrow_mut().extend(&bytes);
                     None
                 }
                 Item::Last(bytes) => {
-                    let mut buffer = buffer.lock().await;
-                    buffer.extend(&bytes);
-                    let message = handle_op(&buffer).await?;
-                    buffer.clear();
-                    message
+                    let data = {
+                        let mut buffer = self.buffer.borrow_mut();
+                        buffer.extend(&bytes);
+                        let data = buffer.clone();
+                        buffer.clear();
+                        data
+                    };
+                    handle_op(&data).await?
                 }
             },
             ws::Frame::Close(_) => Some(ws::Message::Close(None)),
         })
-    });
+    }
 
-    let on_shutdown = fn_shutdown(async move || {
-        let _ = init_stop_tx2.send(()).await;
-        let _ = loop_stop_tx2.send(());
-    });
+    async fn shutdown(&self, _: Ctx<'_, Self, ws::WsSink>) {
+        self.authorize_cancellation_token.cancel();
+        self.broadcast_cancellation_token.cancel();
+    }
+}
 
-    Ok(chain(service).and_then(on_shutdown))
+pub async fn events(
+    state: &AppState,
+    _request_state: (),
+    req: web::HttpRequest,
+) -> web::HttpResponse {
+    let service = WsService::new(state.event_publisher.clone());
+    if let Err(err) = ws::start(&req, None, service).await {
+        warn!("WebSocket error: {:?}", err);
+    }
+    web::HttpResponse::Ok().build()
 }
 
 async fn check_identify(
     sink: ws::WsSink,
-    state: Arc<Mutex<ClientState>>,
-    mut stop_rx: mpsc::Receiver<()>,
+    authorized: Rc<Cell<bool>>,
+    cancellation_token: CancellationToken,
 ) -> Result<(), ProtocolError> {
     select! {
         _ = sleep(Duration::from_secs(30)) => {},
-        _ = stop_rx.recv() => {},
+        _ = cancellation_token.cancelled() => {},
     }
-    if !state.lock().unwrap().authorized {
+    if !authorized.get() {
         warn!("IDENTIFY not received.");
         sink.send(ws::Message::Close(Some(ws::CloseReason {
             code: ws::CloseCode::Policy,
             description: Some("IDENTIFY not received.".to_string()),
         })))
         .await?;
+        sink.io().close();
     }
     debug!("Stopping check_identify.");
     Ok(())
@@ -300,27 +306,40 @@ async fn check_identify(
 
 async fn check_heartbeat(
     sink: ws::WsSink,
-    state: Arc<Mutex<ClientState>>,
-    mut stop_rx: broadcast::Receiver<()>,
+    last_heartbeat: Rc<Cell<Option<Instant>>>,
+    cancellation_token: CancellationToken,
 ) -> Result<(), ProtocolError> {
     let mut running = true;
     select! {
         _ = sleep(Duration::from_secs(30)) => (),
-        _ = stop_rx.recv() => running = false,
+        _ = cancellation_token.cancelled() => running = false,
+    };
+    let next_heartbeat_duration = || match last_heartbeat.get() {
+        Some(last_heartbeat) => {
+            let elapsed = Instant::now() - last_heartbeat;
+            let max_elapsed = Duration::from_secs(30);
+            if elapsed > max_elapsed {
+                None
+            } else {
+                Some(max_elapsed - elapsed)
+            }
+        }
+        None => None,
     };
     while running {
-        let Some(duration) = state.lock().unwrap().check_heartbeat() else {
+        let Some(duration) = next_heartbeat_duration() else {
             warn!("PING not received.");
             sink.send(ws::Message::Close(Some(ws::CloseReason {
                 code: ws::CloseCode::Policy,
                 description: Some("PING not received.".to_string()),
             })))
             .await?;
+            sink.io().close();
             break;
         };
         select! {
             _ = sleep(duration) => (),
-            _ = stop_rx.recv() => running = false,
+            _ = cancellation_token.cancelled() => running = false,
         }
     }
     debug!("Stopping check_heartbeat.");
@@ -330,7 +349,7 @@ async fn check_heartbeat(
 async fn send_events(
     sink: ws::WsSink,
     mut event_rx: broadcast::Receiver<Event>,
-    mut stop_rx: broadcast::Receiver<()>,
+    cancellation_token: CancellationToken,
 ) {
     let mut running = true;
     while running {
@@ -355,7 +374,7 @@ async fn send_events(
                     Err(err) => warn!("Failed to send event: {:?}", err),
                 }
             } => (),
-            _ = stop_rx.recv() => running = false,
+            _ = cancellation_token.cancelled() => running = false,
         }
     }
     debug!("Stopping send_events.");

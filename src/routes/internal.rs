@@ -1,16 +1,13 @@
-use std::sync::Arc;
-
 use async_stream::try_stream;
 use futures_util::Stream;
+use grammers_client::InvocationError;
 use grammers_client::client::DownloadIter;
-use grammers_client::{Client, InvocationError};
 use ntex::http::Response;
 use ntex::util::Bytes;
 use ntex::web;
-use tokio::sync::Mutex;
 
-use crate::error::WebError;
-use crate::self_info_cache::SelfInfoCache;
+use crate::error::AppError;
+use crate::state::AppState;
 use crate::telegram::file_id::FileId;
 
 fn download_stream(mut iter: DownloadIter) -> impl Stream<Item = Result<Bytes, InvocationError>> {
@@ -21,13 +18,13 @@ fn download_stream(mut iter: DownloadIter) -> impl Stream<Item = Result<Bytes, I
     }
 }
 
-#[web::get("/v1/proxy/internal:telegram/{user_id}/{path}")]
-async fn internal(
-    client: web::types::State<Arc<Client>>,
-    self_info_manager: web::types::State<Arc<Mutex<SelfInfoCache>>>,
+pub async fn internal(
+    state: &AppState,
+    _request_state: (),
     path: web::types::Path<(i64, String)>,
-) -> Result<Response, WebError> {
-    let self_id = self_info_manager
+) -> Result<Response, AppError> {
+    let self_id = state
+        .self_info_cache
         .lock()
         .await
         .get_id()
@@ -38,8 +35,9 @@ async fn internal(
         return Ok(web::HttpResponse::NotFound().body("Invalid user ID."));
     }
     match FileId::decode(&path) {
-        Some(file_id) => Ok(web::HttpResponse::Ok()
-            .streaming(Box::pin(download_stream(client.iter_download(&file_id))))),
+        Some(file_id) => Ok(web::HttpResponse::Ok().streaming(Box::pin(download_stream(
+            state.client.iter_download(&file_id),
+        )))),
         None => Ok(web::HttpResponse::NotFound().body("Invalid internal link.")),
     }
 }

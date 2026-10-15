@@ -18,14 +18,18 @@ fn timestamp() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards.")
-        .as_secs_f64()
+        .as_millis() as f64
 }
 
 pub fn satori_event_from_tg_message(login: &User, message: &Message) -> Event {
     let self_id = login.id().bot_api_dialog_id().unwrap_or_default();
     let login = satori_login_from_tg_user(login);
     let satori_msg = satori_message_from_tg_message(self_id, message);
-    let user = satori_msg.user.clone();
+    let user = if message.outgoing() {
+        login.user.clone()
+    } else {
+        satori_msg.user.clone()
+    };
     Event {
         sn: 0,
         event_type: "message-created".to_string(),

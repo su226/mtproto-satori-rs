@@ -1,6 +1,3 @@
-use std::sync::Arc;
-
-use grammers_client::Client;
 use grammers_client::message::InputMessage;
 use grammers_session::types::{PeerAuth, PeerRef};
 use log::debug;
@@ -16,31 +13,30 @@ use crate::convert::message_send::{
     fetch_infos,
     to_reply_markup,
 };
-use crate::error::WebError;
+use crate::error::AppError;
 use crate::satori::element::parse;
-use crate::session::SessionName;
+use crate::state::AppState;
 use crate::telegram::add_reply_markup;
 
 #[derive(Deserialize)]
-struct MessageUpdateParams {
+pub struct MessageUpdateParams {
     channel_id: String,
     message_id: String,
     content: String,
 }
 
-#[web::post("/v1/message.update")]
-async fn message_update(
-    client: web::types::State<Arc<Client>>,
-    session_name: web::types::State<Arc<SessionName>>,
+pub async fn message_update(
+    state: &AppState,
+    _request_state: (),
     params: web::types::Json<MessageUpdateParams>,
-) -> Result<Response, WebError> {
+) -> Result<Response, AppError> {
     let (peer_id, thread_id) =
-        tg_peer_id_from_satori_channel_id(&client, &params.0.channel_id).await?;
+        tg_peer_id_from_satori_channel_id(&state.client, &params.0.channel_id).await?;
     let message_id = params
         .0
         .message_id
         .parse::<i32>()
-        .map_err(|_| WebError::new(StatusCode::BAD_REQUEST, "Bad message ID.".to_string()))?;
+        .map_err(|_| AppError::new(StatusCode::BAD_REQUEST, "Bad message ID.".to_string()))?;
     debug!(
         "Updating message {} from {}:{:?}",
         message_id, peer_id, thread_id
@@ -50,8 +46,8 @@ async fn message_update(
         auth: PeerAuth::default(),
     };
     let elements = parse(&params.0.content)
-        .ok_or_else(|| WebError::new(StatusCode::BAD_REQUEST, "Bad message.".to_string()))?;
-    let infos = fetch_infos(&client, &elements).await?;
+        .ok_or_else(|| AppError::new(StatusCode::BAD_REQUEST, "Bad message.".to_string()))?;
+    let infos = fetch_infos(&state.client, &elements).await?;
     let mut encoder = MessageEncoder::new(infos);
     encoder.render(&elements);
     encoder.flush();
@@ -60,9 +56,9 @@ async fn message_update(
         .text(pack.content)
         .fmt_entities(pack.entities);
     if let Some(media) = pack.assets.first() {
-        message = attach_media(message, &client, media, &session_name.0).await?;
+        message = attach_media(message, &state.client, media, &state.session_name).await?;
     }
     let message = add_reply_markup(message, to_reply_markup(&pack.buttons));
-    client.edit_message(peer, message_id, message).await?;
-    Ok(Response::Ok().finish())
+    state.client.edit_message(peer, message_id, message).await?;
+    Ok(Response::Ok().build())
 }

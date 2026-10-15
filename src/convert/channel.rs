@@ -4,7 +4,7 @@ use grammers_session::types::PeerId;
 use ntex::http::StatusCode;
 use presence_rs::Presence;
 
-use crate::error::WebError;
+use crate::error::AppError;
 use crate::satori::types::{Channel, ChannelType};
 
 pub fn satori_channel_from_tg_peer(peer: &Peer, thread_id: Option<i32>) -> Channel {
@@ -22,6 +22,7 @@ pub fn satori_channel_from_tg_peer(peer: &Peer, thread_id: Option<i32>) -> Chann
             Peer::User(user) => Presence::Some(user.full_name()),
             Peer::Group(group) => Presence::Some(group.title().unwrap_or_default().to_string()),
             Peer::Channel(channel) => Presence::Some(channel.title().to_string()),
+            Peer::Community(community) => Presence::Some(community.title().to_string()),
         },
         parent_id: Presence::Null,
     }
@@ -30,7 +31,7 @@ pub fn satori_channel_from_tg_peer(peer: &Peer, thread_id: Option<i32>) -> Chann
 pub async fn tg_peer_id_from_satori_channel_id(
     client: &Client,
     channel_id: &str,
-) -> Result<(PeerId, Option<i32>), WebError> {
+) -> Result<(PeerId, Option<i32>), AppError> {
     let (peer_id, thread_id) = if let Some((peer_id, thread_id)) = channel_id.split_once(":") {
         (peer_id, Some(thread_id))
     } else {
@@ -38,19 +39,19 @@ pub async fn tg_peer_id_from_satori_channel_id(
     };
     let peer_id = if let Ok(id) = peer_id.parse::<i64>() {
         PeerId::from_bot_api_dialog_id(id)
-            .ok_or_else(|| WebError::new(StatusCode::BAD_REQUEST, "Peer ID invalid.".to_string()))?
+            .ok_or_else(|| AppError::new(StatusCode::BAD_REQUEST, "Peer ID invalid.".to_string()))?
     } else {
         client
             .resolve_username(peer_id)
             .await?
             .ok_or_else(|| {
-                WebError::new(StatusCode::BAD_REQUEST, "Username not found.".to_string())
+                AppError::new(StatusCode::BAD_REQUEST, "Username not found.".to_string())
             })?
             .id()
     };
     let thread_id = if let Some(thread_id) = thread_id {
         Some(thread_id.parse::<i32>().map_err(|_| {
-            WebError::new(StatusCode::BAD_REQUEST, "Thread ID invalid.".to_string())
+            AppError::new(StatusCode::BAD_REQUEST, "Thread ID invalid.".to_string())
         })?)
     } else {
         None

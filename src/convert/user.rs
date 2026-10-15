@@ -31,6 +31,7 @@ pub fn satori_user_from_tg_peer(self_id: i64, peer: &Peer) -> User {
             Peer::User(user) => Presence::Some(user.full_name()),
             Peer::Group(group) => Presence::Some(group.title().unwrap_or_default().to_string()),
             Peer::Channel(channel) => Presence::Some(channel.title().to_string()),
+            Peer::Community(community) => Presence::Some(community.title().to_string()),
         },
         avatar: provide(satori_link_from_tg_peer_photo(self_id, peer)),
         is_bot: match peer {

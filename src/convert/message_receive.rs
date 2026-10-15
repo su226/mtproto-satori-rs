@@ -444,7 +444,7 @@ pub fn satori_message_from_tg_message(
                 .or_else(|| message.peer()) // Channel posts may have no sender
                 .map(|peer| satori_user_from_tg_peer(self_id, peer)),
         ),
-        created_at: Presence::Some(message.date().timestamp() as f64),
-        updated_at: provide(message.edit_date().map(|x| x.timestamp() as f64)),
+        created_at: Presence::Some(message.date().as_millisecond() as f64),
+        updated_at: provide(message.edit_date().map(|x| x.as_millisecond() as f64)),
     }
 }

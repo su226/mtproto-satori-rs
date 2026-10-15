@@ -162,29 +162,21 @@ pub struct Event {
 impl Event {
     pub fn format_session(&self) -> String {
         let user_args = if let Presence::Some(user) = &self.user {
-            format_args!("{}({})", user.name.as_deref().unwrap_or("???"), user.id)
+            format_args!("{}({})", user.nick.as_deref().unwrap_or("???"), user.id)
         } else {
             format_args!("???")
         };
-        if let Presence::Some(channel) = &self.channel {
-            if channel.channel_type == ChannelType::Direct {
-                format!("[{}@direct]", user_args)
-            } else if let Presence::Some(guild) = &self.guild {
-                format!(
-                    "[{}@{}:{}({})]",
-                    user_args,
-                    guild.name.as_deref().unwrap_or("???"),
-                    channel.name.as_deref().unwrap_or("???"),
-                    channel.id
-                )
-            } else {
-                format!(
-                    "[{}@{}({})]",
-                    user_args,
-                    channel.name.as_deref().unwrap_or("???"),
-                    channel.id
-                )
-            }
+        if let Presence::Some(guild) = &self.guild {
+            format!(
+                "[{}@{}({})]",
+                user_args,
+                guild.name.as_deref().unwrap_or("???"),
+                guild.id
+            )
+        } else if let Presence::Some(channel) = &self.channel
+            && channel.channel_type == ChannelType::Direct
+        {
+            format!("[{}@direct]", user_args)
         } else {
             format!("[{}@???]", user_args)
         }

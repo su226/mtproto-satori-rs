@@ -1,5 +1,5 @@
 use grammers_client::media::{Document, Photo};
-use grammers_client::peer::{Channel, Group, Peer, User};
+use grammers_client::peer::{Channel, Community, Group, Peer, User};
 use grammers_client::tl::enums::{Document as DocumentEnum, Photo as PhotoEnum, PhotoSize};
 
 use crate::telegram::file_id::FileId;
@@ -28,11 +28,20 @@ pub fn satori_link_from_tg_channel_photo(self_id: i64, channel: &Channel) -> Opt
     ))
 }
 
+pub fn satori_link_from_tg_community_photo(self_id: i64, community: &Community) -> Option<String> {
+    Some(format!(
+        "internal:telegram/{}/{}",
+        self_id,
+        FileId::community_photo_big(community, community.photo()?).encode(),
+    ))
+}
+
 pub fn satori_link_from_tg_peer_photo(self_id: i64, peer: &Peer) -> Option<String> {
     match peer {
         Peer::User(user) => satori_link_from_tg_user_photo(self_id, user),
         Peer::Group(group) => satori_link_from_tg_group_photo(self_id, group),
         Peer::Channel(channel) => satori_link_from_tg_channel_photo(self_id, channel),
+        Peer::Community(community) => satori_link_from_tg_community_photo(self_id, community),
     }
 }
 

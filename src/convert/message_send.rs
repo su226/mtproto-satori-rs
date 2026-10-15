@@ -52,7 +52,7 @@ use tokio::io::AsyncWriteExt;
 use tokio_util::io::StreamReader;
 use url::Url;
 
-use crate::error::WebError;
+use crate::error::AppError;
 use crate::satori::element::Element;
 use crate::telegram::upload_file_custom_name;
 
@@ -172,6 +172,7 @@ fn set_offset(entity: &mut MessageEntity, offset: i32) {
         MessageEntity::DiffInsert(i) => i.offset = offset,
         MessageEntity::DiffReplace(i) => i.offset = offset,
         MessageEntity::DiffDelete(i) => i.offset = offset,
+        MessageEntity::TonAddress(i) => i.offset = offset,
     }
 }
 
@@ -202,6 +203,7 @@ fn set_length(entity: &mut MessageEntity, length: i32) {
         MessageEntity::DiffInsert(i) => i.length = length,
         MessageEntity::DiffReplace(i) => i.length = length,
         MessageEntity::DiffDelete(i) => i.length = length,
+        MessageEntity::TonAddress(i) => i.length = length,
     }
 }
 
@@ -248,6 +250,7 @@ impl MessageEncoder {
                 }
                 Peer::Group(group) => group.title().map(|x| x.to_string()),
                 Peer::Channel(channel) => Some(channel.title().to_string()),
+                Peer::Community(community) => Some(community.title().to_string()),
             };
             if name.is_some() {
                 return name;
@@ -668,12 +671,12 @@ pub async fn fetch_infos(
     })
 }
 
-pub fn parse_reply(reply: Option<&str>) -> Result<Option<i32>, WebError> {
+pub fn parse_reply(reply: Option<&str>) -> Result<Option<i32>, AppError> {
     if let Some(id) = reply {
         if let Ok(id) = id.parse::<i32>() {
             Ok(Some(id))
         } else {
-            Err(WebError::new(
+            Err(AppError::new(
                 StatusCode::BAD_REQUEST,
                 "Bad reply id".to_string(),
             ))

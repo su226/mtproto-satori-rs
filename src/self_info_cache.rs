@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use grammers_client::Client;
@@ -8,12 +7,12 @@ use log::debug;
 
 pub struct SelfInfoCache {
     info: User,
-    client: Arc<Client>,
+    client: Client,
     last_updated: Option<Instant>,
 }
 
 impl SelfInfoCache {
-    pub fn new(info: User, client: Arc<Client>) -> Self {
+    pub fn new(info: User, client: Client) -> Self {
         Self {
             info,
             client,
