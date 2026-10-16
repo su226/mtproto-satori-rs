@@ -10,6 +10,7 @@ use ntex::http::StatusCode;
 use ntex::web::error::{JsonPayloadError, PathError};
 use ntex::web::{HttpResponse, HttpResponseBuilder, WebResponseError};
 use ntex::ws::error::ProtocolError;
+use ntex_multipart::MultipartError;
 
 use crate::state::{AppErrors, AppState};
 
@@ -126,6 +127,27 @@ impl From<io::Error> for AppError {
     fn from(err: io::Error) -> Self {
         Self {
             code: StatusCode::INTERNAL_SERVER_ERROR,
+            reason: err.to_string(),
+        }
+    }
+}
+
+impl From<MultipartError> for AppError {
+    fn from(err: MultipartError) -> Self {
+        Self {
+            code: StatusCode::BAD_REQUEST,
+            reason: err.to_string(),
+        }
+    }
+}
+
+impl From<async_tempfile::Error> for AppError {
+    fn from(err: async_tempfile::Error) -> Self {
+        Self {
+            code: match err {
+                async_tempfile::Error::InvalidAffix => StatusCode::BAD_REQUEST,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            },
             reason: err.to_string(),
         }
     }

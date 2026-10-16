@@ -56,7 +56,14 @@ pub async fn message_update(
         .text(pack.content)
         .fmt_entities(pack.entities);
     if let Some(media) = pack.assets.first() {
-        message = attach_media(message, &state.client, media, &state.session_name).await?;
+        let self_id = state
+            .self_info_cache
+            .lock()
+            .await
+            .get_id()
+            .bot_api_dialog_id()
+            .unwrap_or_default();
+        message = attach_media(message, &state.client, self_id, media, &state.names).await?;
     }
     let message = add_reply_markup(message, to_reply_markup(&pack.buttons));
     state.client.edit_message(peer, message_id, message).await?;

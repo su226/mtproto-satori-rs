@@ -81,7 +81,7 @@ enum ParserClass {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(u32)]
-enum FileType {
+pub enum FileType {
     Thumbnail,
     ProfilePhoto,
     Photo,
@@ -186,7 +186,7 @@ impl TryFrom<u32> for FileType {
 }
 
 #[derive(Debug)]
-enum PhotoSizeSource {
+pub enum PhotoSizeSource {
     Legacy {
         secret: i64,
     },
@@ -491,7 +491,7 @@ impl Serializable for PhotoSizeSource {
 }
 
 #[derive(Debug)]
-enum FileIdVariant {
+pub enum FileIdVariant {
     Web {
         url: String,
         access_hash: i64,
@@ -509,12 +509,12 @@ enum FileIdVariant {
 
 #[derive(Debug)]
 pub struct FileId {
-    major: u8,
-    minor: u8,
-    file_type: FileType,
-    dc_id: i32,
-    file_reference: Vec<u8>,
-    variant: FileIdVariant,
+    pub major: u8,
+    pub minor: u8,
+    pub file_type: FileType,
+    pub dc_id: i32,
+    pub file_reference: Vec<u8>,
+    pub variant: FileIdVariant,
 }
 
 const WEB_LOCATION_FLAG: u32 = 1 << 24;

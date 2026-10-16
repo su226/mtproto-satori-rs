@@ -41,6 +41,13 @@ pub async fn message_create(
     encoder.render(&elements);
     encoder.flush();
     let mut results = Vec::new();
+    let self_id = state
+        .self_info_cache
+        .lock()
+        .await
+        .get_id()
+        .bot_api_dialog_id()
+        .unwrap_or_default();
     for pack in encoder.packs {
         let reply = parse_reply(pack.reply.as_deref())?;
         trace!("Reply to {:?}", reply);
@@ -54,7 +61,7 @@ pub async fn message_create(
             results.push(state.client.send_message(peer, message).await?);
         } else {
             let mut medias =
-                upload_medias(&state.client, &pack.assets, &state.session_name).await?;
+                upload_medias(&state.client, self_id, &pack.assets, &state.names).await?;
             let buttons = pack.reply_markup();
             if let Some(buttons) = buttons {
                 medias[0] = take(&mut medias[0]).reply_to(reply.or(thread_id));
@@ -95,13 +102,6 @@ pub async fn message_create(
             }
         }
     }
-    let self_id = state
-        .self_info_cache
-        .lock()
-        .await
-        .get_id()
-        .bot_api_dialog_id()
-        .unwrap_or_default();
     Ok(Response::Ok().json(
         &results
             .into_iter()

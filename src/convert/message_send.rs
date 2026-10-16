@@ -16,6 +16,8 @@ use grammers_client::tl::enums::{
     Document as DocumentEnum,
     DocumentAttribute,
     InputChannel as InputChannelEnum,
+    InputDocument as InputDocumentEnum,
+    InputPhoto as InputPhotoEnum,
     InputUser as InputUserEnum,
     MessageEntity,
 };
@@ -25,6 +27,12 @@ use grammers_client::tl::functions::users::GetUsers;
 use grammers_client::tl::types::{
     Document,
     InputChannel,
+    InputDocument,
+    InputMediaDocument,
+    InputMediaDocumentExternal,
+    InputMediaPhoto,
+    InputMediaPhotoExternal,
+    InputPhoto,
     InputUser,
     MessageEntityBlockquote,
     MessageEntityBold,
@@ -54,6 +62,8 @@ use url::Url;
 
 use crate::error::AppError;
 use crate::satori::element::Element;
+use crate::state::SessionName;
+use crate::telegram::file_id::{FileId, FileIdVariant};
 use crate::telegram::upload_file_custom_name;
 
 pub struct MessagePack {
@@ -701,19 +711,30 @@ fn tempfile_err_to_io_err(err: async_tempfile::Error) -> io::Error {
     }
 }
 
+fn is_tmp_link(src: &str, self_id: i64, session_name: &SessionName) -> Option<PathBuf> {
+    let prefix = format!("internal:telegram/{}/_tmp/", self_id);
+    if let Some(suffix) = src.strip_prefix(&prefix) {
+        let mut path = PathBuf::new();
+        path.push(&session_name.files_dir_path);
+        path.push(suffix);
+        Some(path)
+    } else {
+        None
+    }
+}
+
 async fn upload_others(
     client: &Client,
+    self_id: i64,
     element: &Element,
-    session_name: &str,
-) -> Result<Uploaded, io::Error> {
-    let url = element
-        .get_attr_str("src")
-        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+    src: &str,
+    session_name: &SessionName,
+) -> io::Result<Uploaded> {
     let name = element.get_attr_str("name");
-    if let Some(header) = BASE64_HEADER_REGEX.captures(url) {
+    if let Some(header) = BASE64_HEADER_REGEX.captures(src) {
         debug!("Uploading file {}...", header.get_match().as_str());
         let data = BASE64_STANDARD
-            .decode(&url[header.get_match().end()..])
+            .decode(&src[header.get_match().end()..])
             .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
         let name = if let Some(name) = name
             && !name.is_empty()
@@ -729,9 +750,9 @@ async fn upload_others(
         let size = data.len();
         let mut stream = Cursor::new(data);
         client.upload_stream(&mut stream, size, name).await
-    } else if url.starts_with("file:") {
-        debug!("Uploading file {}", url);
-        let path = Url::parse(url)
+    } else if src.starts_with("file:") {
+        debug!("Uploading file {}", src);
+        let path = Url::parse(src)
             .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?
             .to_file_path()
             .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
@@ -743,10 +764,13 @@ async fn upload_others(
             None
         };
         upload_file_custom_name(client, &path, name).await
+    } else if let Some(path) = is_tmp_link(src, self_id, session_name) {
+        debug!("Uploading file {}", src);
+        client.upload_file(path).await
     } else {
-        debug!("Uploading file {}", url);
+        debug!("Uploading file {}", src);
         let mut response = REQWEST_CLIENT
-            .get(url)
+            .get(src)
             .send()
             .await
             .map_err(io::Error::other)?;
@@ -755,7 +779,7 @@ async fn upload_others(
         {
             name.to_string()
         } else {
-            Url::parse(url)
+            Url::parse(src)
                 .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?
                 .path_segments()
                 .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?
@@ -767,10 +791,8 @@ async fn upload_others(
             let stream = &mut StreamReader::new(response.bytes_stream().map_err(io::Error::other));
             client.upload_stream(stream, size as usize, name).await
         } else {
-            let mut dir = PathBuf::new();
-            dir.push(format!("files_{}", session_name));
-            fs::create_dir_all(&dir).await?;
-            let mut file = TempFile::new_in(dir)
+            fs::create_dir_all(&session_name.files_dir_path).await?;
+            let mut file = TempFile::new_in(session_name.files_dir_path.clone())
                 .await
                 .map_err(tempfile_err_to_io_err)?;
             while let Some(mut item) = response.chunk().await.map_err(io::Error::other)? {
@@ -789,10 +811,9 @@ fn image_err_to_io_err(err: ImageError) -> io::Error {
     }
 }
 
-fn extension_match(name: &str, ext: &str) -> bool {
-    name.len() > ext.len() + 1
-        && name.as_bytes()[name.len() - ext.len() - 1] == b'.'
-        && &name[name.len() - ext.len()..] == ext
+pub fn extension_match(name: &str, ext: &str) -> bool {
+    name.strip_suffix(ext)
+        .is_some_and(|stripped| stripped.strip_suffix(".").is_some())
 }
 
 async fn convert_image(path: &Path, out_path: &Path) -> io::Result<()> {
@@ -814,18 +835,67 @@ fn image_mime_valid(mime: &str) -> bool {
     mime == "image/jpeg" || mime == "image/png" || mime == "image/gif"
 }
 
-fn get_mime_extension(mime: &str) -> &'static str {
+pub fn get_mime_extension(mime: &str) -> &'static str {
     match mime {
         "image/jpeg" => "jpg", // Telegram doesn't recognize .jfif
         mime => get_mime_extensions_str(mime).map(|x| x[0]).unwrap_or("bin"),
     }
 }
 
+async fn upload_local_image(
+    client: &Client,
+    mut path: &Path,
+    name: Option<&str>,
+    session_name: &SessionName,
+) -> io::Result<(Uploaded, String)> {
+    let (mut mime, mut ext) = Infer::new()
+        .get_from_path(path)?
+        .map(|x| (x.mime_type(), x.extension()))
+        .unwrap_or(("application/octet-stream", "bin"));
+    trace!("MIME is {}, extension should be {}", mime, ext);
+    let mut tempfile = None;
+    if !image_mime_valid(mime) {
+        trace!("MIME invalid, converting...");
+        let mut dir = PathBuf::new();
+        dir.push(&session_name.files_dir_path);
+        fs::create_dir_all(&dir).await?;
+        tempfile = Some(
+            TempFile::new_in(dir)
+                .await
+                .map_err(tempfile_err_to_io_err)?,
+        );
+        let new_path = tempfile.as_ref().unwrap().file_path();
+        convert_image(path, new_path).await?;
+        path = new_path;
+        mime = "image/png";
+        ext = "png";
+    }
+    let name = if let Some(name) = name
+        && !name.is_empty()
+    {
+        name
+    } else {
+        &*path.file_name().unwrap().to_string_lossy()
+    };
+    trace!("Passed name is {}", name);
+    let name = if extension_match(name, ext) {
+        name.to_string()
+    } else {
+        format!("{}.{}", name, ext)
+    };
+    trace!("Final name is {}", name);
+    let result = upload_file_custom_name(client, path, Some(name)).await?;
+    drop(tempfile);
+    Ok((result, mime.to_string()))
+}
+
 async fn upload_image(
     client: &Client,
+    self_id: i64,
     element: &Element,
-    session_name: &str,
-) -> Result<(Uploaded, String), io::Error> {
+    src: &str,
+    session_name: &SessionName,
+) -> io::Result<(Uploaded, String)> {
     let url = element
         .get_attr_str("src")
         .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
@@ -877,49 +947,14 @@ async fn upload_image(
         Ok((uploaded, mime.to_string()))
     } else if url.starts_with("file:") {
         debug!("Uploading image {}", url);
-        let mut path = &Url::parse(url)
+        let path = Url::parse(url)
             .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?
             .to_file_path()
             .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
-        let (mut mime, mut ext) = Infer::new()
-            .get_from_path(path)?
-            .map(|x| (x.mime_type(), x.extension()))
-            .unwrap_or(("application/octet-stream", "bin"));
-        trace!("MIME is {}, extension should be {}", mime, ext);
-        let mut tempfile = None;
-        if !image_mime_valid(mime) {
-            trace!("MIME invalid, converting...");
-            let mut dir = PathBuf::new();
-            dir.push(format!("files_{}", session_name));
-            fs::create_dir_all(&dir).await?;
-            tempfile = Some(
-                TempFile::new_in(dir)
-                    .await
-                    .map_err(tempfile_err_to_io_err)?,
-            );
-            let new_path = tempfile.as_ref().unwrap().file_path();
-            convert_image(path, new_path).await?;
-            path = new_path;
-            mime = "image/png";
-            ext = "png";
-        }
-        let name = if let Some(name) = name
-            && !name.is_empty()
-        {
-            name
-        } else {
-            &*path.file_name().unwrap().to_string_lossy()
-        };
-        trace!("Passed name is {}", name);
-        let name = if extension_match(name, ext) {
-            name.to_string()
-        } else {
-            format!("{}.{}", name, ext)
-        };
-        trace!("Final name is {}", name);
-        let result = upload_file_custom_name(client, path, Some(name)).await?;
-        drop(tempfile);
-        Ok((result, mime.to_string()))
+        upload_local_image(client, &path, name, session_name).await
+    } else if let Some(path) = is_tmp_link(src, self_id, session_name) {
+        debug!("Uploading image {}", src);
+        upload_local_image(client, &path, name, session_name).await
     } else {
         debug!("Uploading image {}", url);
         let mut response = reqwest::get(url).await.map_err(io::Error::other)?;
@@ -963,10 +998,8 @@ async fn upload_image(
             Ok((uploaded, mime))
         } else {
             trace!("Content-Length unknown or Content-Type invalid, downloading...");
-            let mut dir = PathBuf::new();
-            dir.push(format!("files_{}", session_name));
-            fs::create_dir_all(&dir).await?;
-            let mut file = TempFile::new_in(dir.clone())
+            fs::create_dir_all(&session_name.files_dir_path).await?;
+            let mut file = TempFile::new_in(session_name.files_dir_path.clone())
                 .await
                 .map_err(tempfile_err_to_io_err)?;
             while let Some(mut item) = response.chunk().await.map_err(io::Error::other)? {
@@ -991,33 +1024,191 @@ async fn upload_image(
     }
 }
 
+fn is_uploaded_link(src: &str, self_id: i64) -> io::Result<Option<FileId>> {
+    let prefix = format!("internal:telegram/{}/", self_id);
+    if let Some(suffix) = src.strip_prefix(&prefix)
+        && !suffix.starts_with("_tmp/")
+        && !suffix.starts_with("_api/")
+    {
+        match FileId::decode(suffix) {
+            Some(file_id) => Ok(Some(file_id)),
+            None => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Invalid file id.",
+            )),
+        }
+    } else {
+        Ok(None)
+    }
+}
+
+enum UploadedImage {
+    Uploaded(InputMediaPhoto),
+    External(InputMediaPhotoExternal),
+}
+
+fn is_uploaded_image(
+    element: &Element,
+    src: &str,
+    self_id: i64,
+) -> io::Result<Option<UploadedImage>> {
+    if let Some(file_id) = is_uploaded_link(src, self_id)? {
+        let spoiler = element.get_attr_bool("spoiler").unwrap_or_default();
+        match &file_id.variant {
+            FileIdVariant::Photo {
+                file_id: id,
+                access_hash,
+                source: _,
+            } => Ok(Some(UploadedImage::Uploaded(InputMediaPhoto {
+                spoiler,
+                live_photo: false,
+                id: InputPhotoEnum::Photo(InputPhoto {
+                    id: *id,
+                    access_hash: *access_hash,
+                    file_reference: file_id.file_reference.clone(),
+                }),
+                ttl_seconds: None,
+                video: None,
+            }))),
+            FileIdVariant::Common { .. } => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Not an photo file id.",
+            )),
+            // TODO: Verify web file ID can be used?
+            FileIdVariant::Web {
+                url,
+                access_hash: _,
+            } => Ok(Some(UploadedImage::External(InputMediaPhotoExternal {
+                spoiler,
+                url: url.clone(),
+                ttl_seconds: None,
+            }))),
+        }
+    } else {
+        Ok(None)
+    }
+}
+
+enum UploadedDocument {
+    Uploaded(InputMediaDocument),
+    External(InputMediaDocumentExternal),
+}
+
+fn is_uploaded_document(
+    element: &Element,
+    src: &str,
+    self_id: i64,
+) -> io::Result<Option<UploadedDocument>> {
+    if let Some(file_id) = is_uploaded_link(src, self_id)? {
+        let spoiler = element.get_attr_bool("spoiler").unwrap_or_default();
+        match &file_id.variant {
+            FileIdVariant::Photo { .. } => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Not an document file id.",
+            )),
+            FileIdVariant::Common {
+                file_id: id,
+                access_hash,
+            } => Ok(Some(UploadedDocument::Uploaded(InputMediaDocument {
+                spoiler,
+                id: InputDocumentEnum::Document(InputDocument {
+                    id: *id,
+                    access_hash: *access_hash,
+                    file_reference: file_id.file_reference.clone(),
+                }),
+                video_cover: None,
+                video_timestamp: None,
+                ttl_seconds: None,
+                query: None,
+            }))),
+            // TODO: Verify web file ID can be used?
+            FileIdVariant::Web {
+                url,
+                access_hash: _,
+            } => Ok(Some(UploadedDocument::External(
+                InputMediaDocumentExternal {
+                    spoiler,
+                    url: url.clone(),
+                    ttl_seconds: None,
+                    video_cover: None,
+                    video_timestamp: None,
+                },
+            ))),
+        }
+    } else {
+        Ok(None)
+    }
+}
+
 pub async fn upload_medias(
     client: &Client,
+    self_id: i64,
     elements: &[Element],
-    session_name: &str,
-) -> Result<Vec<InputMedia>, io::Error> {
+    session_name: &SessionName,
+) -> io::Result<Vec<InputMedia>> {
     let mut medias = Vec::new();
     for element in elements {
         medias.push(match element.tag.as_str() {
             "img" | "image" => {
-                let (media, mime) = upload_image(client, element, session_name).await?;
-                if mime == "image/gif" {
-                    InputMedia::new().file(media)
+                let src = element
+                    .get_attr_str("src")
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Missing src."))?;
+                if let Some(image) = is_uploaded_image(element, src, self_id)? {
+                    match image {
+                        UploadedImage::Uploaded(uploaded) => InputMedia::new().media(uploaded),
+                        UploadedImage::External(external) => InputMedia::new().media(external),
+                    }
                 } else {
-                    InputMedia::new().photo(media)
+                    let (media, mime) =
+                        upload_image(client, self_id, element, src, session_name).await?;
+                    if mime == "image/gif" {
+                        InputMedia::new().file(media)
+                    } else {
+                        InputMedia::new().photo(media)
+                    }
                 }
             }
             "audio" => {
-                let media = upload_others(client, element, session_name).await?;
-                InputMedia::new().document(media)
+                let src = element
+                    .get_attr_str("src")
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Missing src."))?;
+                if let Some(document) = is_uploaded_document(element, src, self_id)? {
+                    match document {
+                        UploadedDocument::Uploaded(uploaded) => InputMedia::new().media(uploaded),
+                        UploadedDocument::External(external) => InputMedia::new().media(external),
+                    }
+                } else {
+                    let media = upload_others(client, self_id, element, src, session_name).await?;
+                    InputMedia::new().document(media)
+                }
             }
             "video" => {
-                let media = upload_others(client, element, session_name).await?;
-                InputMedia::new().document(media)
+                let src = element
+                    .get_attr_str("src")
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Missing src."))?;
+                if let Some(document) = is_uploaded_document(element, src, self_id)? {
+                    match document {
+                        UploadedDocument::Uploaded(uploaded) => InputMedia::new().media(uploaded),
+                        UploadedDocument::External(external) => InputMedia::new().media(external),
+                    }
+                } else {
+                    let media = upload_others(client, self_id, element, src, session_name).await?;
+                    InputMedia::new().document(media)
+                }
             }
             "file" => {
-                let media = upload_others(client, element, session_name).await?;
-                InputMedia::new().file(media)
+                let src = element
+                    .get_attr_str("src")
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Missing src."))?;
+                if let Some(document) = is_uploaded_document(element, src, self_id)? {
+                    match document {
+                        UploadedDocument::Uploaded(uploaded) => InputMedia::new().media(uploaded),
+                        UploadedDocument::External(external) => InputMedia::new().media(external),
+                    }
+                } else {
+                    let media = upload_others(client, self_id, element, src, session_name).await?;
+                    InputMedia::new().file(media)
+                }
             }
             _ => return Err(io::ErrorKind::InvalidInput.into()),
         });
@@ -1028,29 +1219,71 @@ pub async fn upload_medias(
 pub async fn attach_media(
     message: InputMessage,
     client: &Client,
+    self_id: i64,
     element: &Element,
-    session_name: &str,
-) -> Result<InputMessage, io::Error> {
+    session_name: &SessionName,
+) -> io::Result<InputMessage> {
     match element.tag.as_str() {
         "img" | "image" => {
-            let (media, mime) = upload_image(client, element, session_name).await?;
-            if mime == "image/gif" {
-                Ok(message.file(media))
+            let src = element
+                .get_attr_str("src")
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Missing src."))?;
+            if let Some(image) = is_uploaded_image(element, src, self_id)? {
+                match image {
+                    UploadedImage::Uploaded(uploaded) => Ok(message.media(uploaded)),
+                    UploadedImage::External(external) => Ok(message.media(external)),
+                }
             } else {
-                Ok(message.photo(media))
+                let (media, mime) =
+                    upload_image(client, self_id, element, src, session_name).await?;
+                if mime == "image/gif" {
+                    Ok(message.file(media))
+                } else {
+                    Ok(message.photo(media))
+                }
             }
         }
         "audio" => {
-            let media = upload_others(client, element, session_name).await?;
-            Ok(message.document(media))
+            let src = element
+                .get_attr_str("src")
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Missing src."))?;
+            if let Some(document) = is_uploaded_document(element, src, self_id)? {
+                match document {
+                    UploadedDocument::Uploaded(uploaded) => Ok(message.media(uploaded)),
+                    UploadedDocument::External(external) => Ok(message.media(external)),
+                }
+            } else {
+                let media = upload_others(client, self_id, element, src, session_name).await?;
+                Ok(message.document(media))
+            }
         }
         "video" => {
-            let media = upload_others(client, element, session_name).await?;
-            Ok(message.document(media))
+            let src = element
+                .get_attr_str("src")
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Missing src."))?;
+            if let Some(document) = is_uploaded_document(element, src, self_id)? {
+                match document {
+                    UploadedDocument::Uploaded(uploaded) => Ok(message.media(uploaded)),
+                    UploadedDocument::External(external) => Ok(message.media(external)),
+                }
+            } else {
+                let media = upload_others(client, self_id, element, src, session_name).await?;
+                Ok(message.document(media))
+            }
         }
         "file" => {
-            let media = upload_others(client, element, session_name).await?;
-            Ok(message.file(media))
+            let src = element
+                .get_attr_str("src")
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Missing src."))?;
+            if let Some(document) = is_uploaded_document(element, src, self_id)? {
+                match document {
+                    UploadedDocument::Uploaded(uploaded) => Ok(message.media(uploaded)),
+                    UploadedDocument::External(external) => Ok(message.media(external)),
+                }
+            } else {
+                let media = upload_others(client, self_id, element, src, session_name).await?;
+                Ok(message.file(media))
+            }
         }
         _ => Err(io::ErrorKind::InvalidInput.into()),
     }

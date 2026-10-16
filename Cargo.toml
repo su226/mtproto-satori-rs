@@ -18,7 +18,8 @@ image = "0.25.10"
 infer = "0.22.0"
 log = "0.4.34"
 mime_guess = "2.0.5"
-ntex = { version = "4.2.0", features = ["tokio"] }
+ntex = { version = "4.3.0", features = ["tokio"] }
+ntex-multipart = "4.1.0"
 presence-rs = { version = "0.2.0", features = ["serde"] }
 regex = "1.13.1"
 reqwest = { version = "0.13.5", features = ["stream"] }

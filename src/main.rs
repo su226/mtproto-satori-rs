@@ -32,11 +32,12 @@ use crate::routes::login_get::login_get;
 use crate::routes::message_create::message_create;
 use crate::routes::message_get::message_get;
 use crate::routes::message_update::message_update;
+use crate::routes::upload_create::{clean_uploads, upload_create};
 use crate::routes::user_channel_create::user_channel_create;
 use crate::routes::user_get::user_get;
 use crate::self_info_cache::SelfInfoCache;
 use crate::settings::Settings;
-use crate::state::AppStateBuilder;
+use crate::state::{AppStateBuilder, SessionName};
 
 async fn is_fresh_login(session: &SqliteSession) -> bool {
     let updates_state = session
@@ -148,13 +149,14 @@ async fn main() -> io::Result<()> {
         self_info_cache.clone(),
         settings.clone(),
     ));
-    let session_name = Arc::new(session_name);
+    let session_name = Arc::new(SessionName::new(session_name));
 
     spawn(
         event_publisher
             .clone()
             .publish(client.clone(), pool.updates),
     );
+    spawn(clean_uploads(session_name.clone()));
 
     let bind = &settings.clone().bind;
     let state = AppStateBuilder::new(
@@ -188,6 +190,10 @@ async fn main() -> io::Result<()> {
             .route(
                 "/v1/message.update",
                 web::post().to_with_state(message_update),
+            )
+            .route(
+                "/v1/upload.create",
+                web::post().to_with_state(upload_create),
             )
             .route(
                 "/v1/user.channel.create",
